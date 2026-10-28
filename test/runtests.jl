@@ -251,7 +251,7 @@ end
         @test_logs (:warn, r"name different problems") read_smps(instance(stoch))
         core = replace(TOY_CORE, "ROWS\n" => "OBJSENSE\n    MAX\nROWS\n")
         smps = read_smps(instance(replace(stoch, "OTHER" => "TOY"); core = core))
-        @test smps.sense === :max && smps.c == [-2.0, -3.0] && smps.q == [-5.0, -6.0, -0.0]
+        @test smps.sense === :max && smps.c == [-2.0, -3.0] && isequal(smps.q, [-5.0, -6.0, 0.0])
         @test read_smps(instance(replace(stoch, "OTHER" => "TOY"); core = core); sense = :min).c == [2.0, 3.0]
         @test same_problem(smps, round_trip(smps))
     end

@@ -408,7 +408,8 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
         return sparse(I, J, V, length(rowlist), length(collist))
     end
     A, T, W = matrix(rows1, cols1), matrix(rows2, cols1), matrix(rows2, cols2)
-    c = [sign * get(cost, j, 0.0) for j in eachindex(columns)]
+    # the costs of a maximization negated, + 0.0 so that no zero is negative
+    c = [sign * get(cost, j, 0.0) + 0.0 for j in eachindex(columns)]
     lb = [get(lower, j, 0.0) for j in eachindex(columns)]
     ub = [get(upper, j, Inf) for j in eachindex(columns)]
     for j in eachindex(columns)                     # MPS: a negative upper bound alone frees x
@@ -434,16 +435,16 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
     # the outcomes: the modifiers applied, sorted by element, costs signed
     outcomes = map(zip(sto.realizations, sto.modifiers)) do (realizations, modifier)
         map(realizations) do realization
-            sort!([e => signs[e] * modified(modifier, core[e], v) for (e, v) in realization])
+            sort!([e => signs[e] * modified(modifier, core[e], v) + 0.0 for (e, v) in realization])
         end
     end
     continuous = [(e, distribution(sto.path, kind, p1, p2), modifier, signs[e])
                   for (e, kind, p1, p2, modifier) in sto.continuous]
-    law = SMPSLaw(signs .* core, sto.probabilities, outcomes, continuous)
+    law = SMPSLaw(signs .* core .+ 0.0, sto.probabilities, outcomes, continuous)
     return SMPSProblem(cor.name, sense, objective, c[cols1], A, senses[rows1], b[rows1], rg[rows1],
                        lb[cols1], ub[cols1], [j in integer for j in cols1],
                        c[cols2], W, senses[rows2], b[rows2], rg[rows2], T,
-                       lb[cols2], ub[cols2], [j in integer for j in cols2], sign * cor.constant,
+                       lb[cols2], ub[cols2], [j in integer for j in cols2], sign * cor.constant + 0.0,
                        columns[cols1], columns[cols2], rows[rows1], rows[rows2],
                        elements, sto.elementnames, law)
 end
