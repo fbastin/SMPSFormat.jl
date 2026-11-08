@@ -1,5 +1,7 @@
 # SMPSFormat.jl
 
+[![CI](https://github.com/fbastin/SMPSFormat.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/fbastin/SMPSFormat.jl/actions/workflows/CI.yml)
+
 Read and write two-stage stochastic linear programs in the SMPS format (Birge et al., 1987;
 Gassmann's description of the format; Gassmann and Kristjánsson, *The SMPS format explained*,
 IMA Journal of Management Mathematics, 2007, doi:10.1093/imaman/dpm007).
