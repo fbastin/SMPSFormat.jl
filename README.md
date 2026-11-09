@@ -6,6 +6,13 @@ Read and write two-stage stochastic linear programs in the SMPS format (Birge et
 Gassmann's description of the format; Gassmann and Kristjánsson, *The SMPS format explained*,
 IMA Journal of Management Mathematics, 2007, doi:10.1093/imaman/dpm007).
 
+Not registered yet; install it from this repository:
+
+```julia
+using Pkg
+Pkg.add(url = "https://github.com/fbastin/SMPSFormat.jl")
+```
+
 ```julia
 using SMPSFormat
 smps = read_smps("lands")                     # lands.cor, lands.tim, lands.sto
