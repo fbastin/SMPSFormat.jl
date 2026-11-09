@@ -1,0 +1,36 @@
+STOCH         MYSMPS
+SCENARIOS     DISCRETE                REPLACE
+ SC SCEN0001  ROOT              0.06  STG00002
+    RHS       R0000002           200
+    RHS       R0000003           180
+    RHS       R0000004           200
+    RHS       R0000005           180
+ SC SCEN0002  SCEN0001          0.15  STG00003
+    RHS       R0000004           180
+    RHS       R0000005           160
+ SC SCEN0003  SCEN0001          0.09  STG00003
+    RHS       R0000004           160
+    RHS       R0000005           140
+ SC SCEN0004  ROOT              0.12  STG00002
+    RHS       R0000002           180
+    RHS       R0000003           160
+    RHS       R0000004           200
+    RHS       R0000005           180
+ SC SCEN0005  SCEN0004          0.16  STG00003
+    RHS       R0000004           180
+    RHS       R0000005           160
+ SC SCEN0006  SCEN0004          0.12  STG00003
+    RHS       R0000004           160
+    RHS       R0000005           140
+ SC SCEN0007  ROOT              0.12  STG00002
+    RHS       R0000002           160
+    RHS       R0000003           140
+    RHS       R0000004           200
+    RHS       R0000005           180
+ SC SCEN0008  SCEN0007          0.12  STG00003
+    RHS       R0000004           180
+    RHS       R0000005           160
+ SC SCEN0009  SCEN0007          0.06  STG00003
+    RHS       R0000004           160
+    RHS       R0000005           140
+ENDATA

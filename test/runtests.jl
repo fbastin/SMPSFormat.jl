@@ -51,6 +51,9 @@ PERIODS
 ENDATA
 """
 
+# The same in three periods: Y3 and BAL make the third.
+const THREE = replace(TOY_TIME, "ENDATA" => "    Y3        BAL                      PERIOD3\nENDATA")
+
 """The path of the instance made of `core`, `time` and `stoch`, in a new temporary directory."""
 function instance(stoch; core = TOY_CORE, time = TOY_TIME)
     dir = mktempdir()
@@ -263,8 +266,121 @@ end
                       "INDEP         DISCRETE\n    RNG       BAL       1.0            PERIOD2   1.0\n")
             @test_throws ErrorException read_smps(instance("STOCH         TOY\n" * stoch * "ENDATA\n"))
         end
-        three = replace(TOY_TIME, "ENDATA" => "    Y3        BAL                      PERIOD3\nENDATA")
-        @test_throws ErrorException read_smps(instance("STOCH         TOY\nENDATA\n"; time = three))
+    end
+
+    @testset "A tree in three periods: shared nodes, values inherited" begin
+        stoch = """
+            STOCH         TOY
+            SCENARIOS     DISCRETE                REPLACE
+             SC A         ROOT      0.5            PERIOD2
+                RHS       DEM1      5.0
+             SC B         A         0.25           PERIOD3
+                RHS       BAL       9.0
+                Y3        COST      7.0
+             SC C         ROOT      0.25           PERIOD2
+                RHS       DEM1      6.0            DEM2      2.0
+            ENDATA
+            """
+        tree = read_smps(instance(stoch; time = THREE))
+        @test tree isa SMPSTree
+        @test tree.periods == ["PERIOD1", "PERIOD2", "PERIOD3"]
+        @test tree.colperiod == [1, 1, 2, 2, 3] && tree.rowperiod == [1, 2, 2, 3]
+        @test tree.nodeperiod == [1, 2, 3, 3, 2, 3] && tree.parent == [0, 1, 2, 2, 1, 5]
+        @test tree.scenarios == [[1, 2, 3], [1, 2, 4], [1, 5, 6]]
+        @test tree.probability ≈ [1.0, 0.75, 0.5, 0.25, 0.25, 0.25]
+        @test bundles(tree, 1) == [[1, 2, 3]] && bundles(tree, 2) == [[1, 2], [3]]
+        @test bundles(tree, 3) == [[1], [2], [3]]
+        # B shares A's node in the second period, so A's demand; its own balance and cost after
+        b = scenario_data(tree, 2)
+        @test b.rhs == [10.0, 5.0, 3.0, 9.0] && b.c == [2.0, 3.0, 5.0, 6.0, 7.0]
+        a = scenario_data(tree, 1)
+        @test a.rhs == [10.0, 5.0, 3.0, 8.0] && a.c == tree.c
+        @test scenario_data(tree, 3).rhs == [10.0, 6.0, 2.0, 8.0]
+        model, x = extensive_form(tree)
+        @test length(x) == 6 && length.(x) == [2, 2, 1, 1, 2, 1]
+        @test num_constraints(model, AffExpr, MOI.Interval{Float64}) == 3   # BAL, at each leaf
+        @test all(is_integer(x[n][1]) for n in (3, 4, 6))                  # Y3
+        # without a scenario: the core problem alone
+        single = read_smps(instance("STOCH         TOY\nENDATA\n"; time = THREE))
+        @test single.scenarios == [[1, 2, 3]] && single.probability == [1.0, 1.0, 1.0]
+        # a maximization: the costs stored negated, the model a maximization
+        maxi = read_smps(instance(stoch; time = THREE); sense = :max)
+        @test maxi.c == -tree.c
+        @test Set(maxi.values[4]) == Set(e => (tree.elements[e][1] === :c ? -v : v) for (e, v) in tree.values[4])
+        @test objective_sense(first(extensive_form(maxi))) == MOI.MAX_SENSE
+    end
+
+    @testset "A tree: one scenario from ROOT in the first period" begin
+        stoch = """
+            STOCH         TOY
+            SCENARIOS     DISCRETE                REPLACE
+             SC A         ROOT      0.5            PERIOD1
+                X1        COST      4.0
+             SC B         A         0.5            PERIOD2
+                RHS       DEM1      6.0
+            ENDATA
+            """
+        tree = read_smps(instance(stoch; time = THREE))
+        @test tree.scenarios == [[1, 2, 3], [1, 4, 5]] && tree.probability ≈ [1.0, 0.5, 0.5, 0.5, 0.5]
+        @test all(scenario_data(tree, s).c[1] == 4.0 for s in 1:2)        # the first period's data
+        @test scenario_data(tree, 2).rhs[2] == 6.0
+    end
+
+    @testset "A tree: refused" begin
+        bad = ("SC A         ROOT      0.5            PERIOD1\n SC C         ROOT      0.5            PERIOD2\n",
+               "SC A         ROOT      1.0            PERIOD3\n    RHS       DEM1      5.0\n",
+               "SC B         A         1.0            PERIOD2\n",
+               "SC A         ROOT      1.0\n",
+               "SC A         ROOT      1.0            PERIOD9\n",
+               "SC A         ROOT      1.0            PERIOD2\n UP BND       Y1        5.0\n",
+               "SC A         ROOT      1.0            PERIOD2\n    RNG       BAL       1.0\n",
+               "SC A         ROOT      1.0            PERIOD2\n    Y2        DEM1      1.0\n")
+        for scenarios in bad
+            stoch = "STOCH         TOY\nSCENARIOS     DISCRETE\n " * scenarios * "ENDATA\n"
+            @test_throws ErrorException read_smps(instance(stoch; time = THREE))
+        end
+        @test_throws ErrorException read_smps(instance(
+            "STOCH         TOY\nINDEP         DISCRETE\n    RHS       DEM1      1.0            PERIOD2   1.0\nENDATA\n";
+            time = THREE))
+        @test_throws ErrorException read_smps(instance(
+            "STOCH         TOY\nSCENARIOS     DISCRETE                ADD\n SC A         ROOT      1.0            PERIOD2\nENDATA\n";
+            time = THREE))
+    end
+
+    @testset "KandW3R: three periods, nine scenarios" begin
+        tree = read_smps(joinpath(DATA, "KandW3R"))
+        @test [count(==(t), tree.nodeperiod) for t in 1:3] == [1, 3, 9]
+        @test bundles(tree, 2) == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        @test tree.probability[tree.scenarios[1][2]] ≈ 0.30 && sum(tree.scenarioprobability) ≈ 1
+        model, _ = extensive_form(tree; optimizer = HiGHS.Optimizer)
+        set_silent(model)
+        optimize!(model)
+        @test termination_status(model) == MOI.OPTIMAL
+        @test objective_value(model) ≈ 2613.0                     # Zehtabian and Bastin (2016)
+    end
+
+    @testset "app0110R: NAME as first section, probabilities as written" begin
+        # the probabilities sum up to 0.999, within the rounding of their three decimals
+        tree = @test_logs (:warn, r"normalized") read_smps(joinpath(DATA, "app0110R"))
+        written = @test_logs (:warn, r"kept as written") read_smps(joinpath(DATA, "app0110R");
+                                                                   probability_sums = :as_written)
+        @test written.probability[1] ≈ 0.999 && tree.probability[1] ≈ 1.0
+        values = map((tree, written)) do t
+            model, _ = extensive_form(t; optimizer = HiGHS.Optimizer)
+            set_silent(model)
+            optimize!(model)
+            objective_value(model)
+        end
+        @test values[1] ≈ 42.0 && values[2] ≈ 41.958             # the second as published
+    end
+
+    @testset "wat_10_C_32: ten periods" begin
+        tree = read_smps(joinpath(DATA, "wat_10_C_32"))
+        @test [count(==(t), tree.nodeperiod) for t in 1:10] == [1, 2, 4, 8, 16, 32, 32, 32, 32, 32]
+        model, _ = extensive_form(tree; optimizer = HiGHS.Optimizer)
+        set_silent(model)
+        optimize!(model)
+        @test isapprox(objective_value(model), -2611.92; atol = 0.005)   # Zehtabian and Bastin (2016)
     end
 
     @testset "LandS" begin

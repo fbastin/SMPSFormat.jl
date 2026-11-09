@@ -2,7 +2,7 @@ module SMPSFormatJuMPExt
 
 using JuMP
 using SMPSFormat
-using SMPSFormat: SMPSProblem, row_bounds, second_stage
+using SMPSFormat: SMPSProblem, SMPSTree, row_bounds, second_stage
 using SparseArrays
 
 """Variables with the bounds `lb`, `ub` and the integrality `integer`, named `name[j]`."""
@@ -23,16 +23,22 @@ function add_rows!(model, terms, senses, rhs, ranges)
         add_to_expression!(expressions[rowvals(M)[k]], nonzeros(M)[k], x[j])
     end
     for (i, expression) in enumerate(expressions)
-        lower, upper = row_bounds(senses[i], rhs[i], ranges[i])
-        if lower == upper
-            @constraint(model, expression == lower)
-        elseif isinf(lower)
-            @constraint(model, expression <= upper)
-        elseif isinf(upper)
-            @constraint(model, expression >= lower)
-        else
-            @constraint(model, lower <= expression <= upper)
-        end
+        add_row!(model, expression, senses[i], rhs[i], ranges[i])
+    end
+    return model
+end
+
+"""The row `expression ~ rhs` of sense `sense` and range `range`."""
+function add_row!(model, expression, sense, rhs, range)
+    lower, upper = row_bounds(sense, rhs, range)
+    if lower == upper
+        @constraint(model, expression == lower)
+    elseif isinf(lower)
+        @constraint(model, expression <= upper)
+    elseif isinf(upper)
+        @constraint(model, expression >= lower)
+    else
+        @constraint(model, lower <= expression <= upper)
     end
     return model
 end
@@ -57,6 +63,45 @@ function SMPSFormat.extensive_form(smps::SMPSProblem, ξ::AbstractVector, p::Abs
     # a maximization is stored as the minimization of the opposite objective
     smps.sense === :max ? @objective(model, Max, -objective) : @objective(model, Min, objective)
     return model, x, y
+end
+
+function SMPSFormat.extensive_form(tree::SMPSTree; optimizer = nothing)
+    model = optimizer === nothing ? Model() : Model(optimizer)
+    periods = eachindex(tree.periods)
+    cols = [findall(==(t), tree.colperiod) for t in periods]
+    rows = [findall(==(t), tree.rowperiod) for t in periods]
+    position = zeros(Int, length(tree.columns))      # a column => its index in its period
+    for t in periods, (k, j) in enumerate(cols[t])
+        position[j] = k
+    end
+    At = sparse(tree.A')                            # the rows of A as columns
+    N = length(tree.nodeperiod)
+    ancestors = Vector{Vector{Int}}(undef, N)       # a node's ancestors by period, itself last
+    x = Vector{Vector{VariableRef}}(undef, N)
+    objective = AffExpr(tree.constant)
+    for n in 1:N                                    # a parent comes before its children
+        t = tree.nodeperiod[n]
+        ancestors[n] = t == 1 ? [n] : [ancestors[tree.parent[n]]; n]
+        J = cols[t]
+        x[n] = bounded_variables(model, tree.lb[J], tree.ub[J], tree.integer[J], "x_$n")
+        random = Dict(tree.elements[e] => v for (e, v) in tree.values[n])
+        for (k, j) in enumerate(J)
+            cj = get(random, (:c, j, 0), tree.c[j])
+            cj == 0 || add_to_expression!(objective, tree.probability[n] * cj, x[n][k])
+        end
+        for i in rows[t]
+            expression = AffExpr(0.0)
+            for k in nzrange(At, i)
+                j = rowvals(At)[k]
+                a = get(random, (:A, i, j), nonzeros(At)[k])
+                a == 0 || add_to_expression!(expression, a, x[ancestors[n][tree.colperiod[j]]][position[j]])
+            end
+            add_row!(model, expression, tree.senses[i], get(random, (:rhs, i, 0), tree.rhs[i]),
+                     tree.ranges[i])
+        end
+    end
+    tree.sense === :max ? @objective(model, Max, -objective) : @objective(model, Min, objective)
+    return model, x
 end
 
 end

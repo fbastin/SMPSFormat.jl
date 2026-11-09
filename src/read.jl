@@ -4,8 +4,9 @@
     read_smps(core, time, stoch; sense = nothing, probability_sums = :rounding)
     read_smps(prefix; sense = nothing, probability_sums = :rounding)
 
-Read a two-stage instance in the SMPS format into an [`SMPSProblem`](@ref). `read_smps(prefix)`
-looks for `prefix` followed by `.cor` or `.core`, `.tim` or `.time`, and `.sto` or `.stoch`.
+Read an instance in the SMPS format: an instance in two periods into an [`SMPSProblem`](@ref),
+one in more periods into an [`SMPSTree`](@ref), its scenario tree. `read_smps(prefix)` looks for
+`prefix` followed by `.cor` or `.core`, `.tim` or `.time`, and `.sto` or `.stoch`.
 
 **The core file** is in free MPS format: `NAME`, `OBJSENSE`, `ROWS`, `COLUMNS` (with integer
 markers), `RHS`, `RANGES` and `BOUNDS` (`UP`, `LO`, `FX`, `FR`, `MI`, `PL`, `BV`, `LI`, `UI`).
@@ -14,10 +15,10 @@ one, as in MPS.
 
 **The time file** gives the periods, implicitly (the first column and row of each, the core file
 being in temporal order) or explicitly (`PERIODS EXPLICIT`, then the period of each column and
-row). Two periods only, for now.
+row), in any number.
 
-**The stoch file** gives the law of the random elements, which may be right-hand sides, matrix
-coefficients and costs of the second stage:
+**The stoch file of a two-period instance** gives the law of the random elements, which may be
+right-hand sides, matrix coefficients and costs of the second stage:
 - `INDEP` sections, `DISCRETE` or continuous: `UNIFORM` (a, b), `NORMAL` (mean, variance),
   `GAMMA` (scale, shape), `BETA` (the two parameters of Beta(n, m), density ∝ x^(n−1)(1−x)^(m−1)),
   `LOGNORM` (mean and variance of the logarithm). A continuous law can be sampled only.
@@ -29,12 +30,24 @@ coefficients and costs of the second stage:
 - The modifiers `REPLACE` (the default), `ADD` and `MULTIPLY` of `INDEP` and `BLOCKS` sections:
   the value given replaces the core value, is added to it, or multiplies it.
 
-Not supported, and refused: more than two periods, `NODES`, `DISTRIB`, `MVNORMAL`, `LINTRAN` and
-user-defined distributions, chance constraints (`CHANCE`, `ICC`), `SIMPLE` recourse, random
-bounds and ranges, random first-stage data, network core files.
+**The stoch file of an instance in more periods** gives its scenario tree, in a `SCENARIOS
+DISCRETE` (or `SCEN`) section, `REPLACE`: each scenario branches from `ROOT`, or from a scenario
+given before it, in the period its `SC` line gives. Before that period it shares the nodes of its
+parent; from that period on it has nodes of its own, and inherits the values it does not list
+from its parent (the core file for `ROOT`). It may change only data of its branching period or
+later: right-hand sides, matrix coefficients and costs. The tree has one node in the first
+period: a scenario branching from `ROOT` in the first period, as in the SGPF files of POSTS, must
+be the only child of `ROOT`, and then sets the data of the first period. Without any scenario,
+the tree is a single one, the core problem.
+
+Not supported, and refused: `NODES`, `DISTRIB`, `MVNORMAL`, `LINTRAN` and user-defined
+distributions, `INDEP` and `BLOCKS` in more than two periods, chance constraints (`CHANCE`, `ICC`),
+`SIMPLE` recourse, random bounds and ranges, random first-stage data in two periods, network core
+files.
 
 **The names** on the first lines of the three files should be the same; when they are not, as in
-several files of SPLIB, a warning.
+several files of SPLIB, a warning. A time or stoch file whose first section is `NAME`, instead of
+`TIME` or `STOCH`, as some of SMI's, is read as well.
 
 **`sense`**: `:min` or `:max`, overriding the file's `OBJSENSE` (for a maximization whose files do
 not say so, as SAPHIR's); by default, the file's, or `:min`. A maximization is stored as the
@@ -50,7 +63,8 @@ or the scenarios) that do not sum up to one:
 - `:as_written`: kept as written, with a warning; the probabilities of the scenarios then sum up
   to the product of their totals, and the expected recourse is weighted by them. Zverovich's
   thesis (2011) solved SPLIB's instances so, and its published values are reproduced only this
-  way.
+  way. In a tree, each node then has the total probability of its scenarios, the root the sum
+  of them all.
 """
 function read_smps(prefix::AbstractString; kwargs...)
     find(exts) = (i = findfirst(e -> isfile(prefix * e), exts);
@@ -68,11 +82,13 @@ function read_smps(core::AbstractString, time::AbstractString, stoch::AbstractSt
     sense = something(sense, cor.sense)
     sign = sense === :max ? -1.0 : 1.0
     tim = read_time(time, cor)
-    sto = read_stoch(stoch, cor, tim, probability_sums)
+    twostage = length(tim.periods) == 2
+    sto = twostage ? read_stoch(stoch, cor, tim, probability_sums) :
+          read_tree(stoch, cor, tim, probability_sums)
     names = (cor.name, tim.name, sto.name)
     allequal(names) || @warn "The SMPS files name different problems: $(names[1]) (core), " *
                              "$(names[2]) (time), $(names[3]) (stoch)"
-    return assemble(cor, tim, sto, sign, sense)
+    return twostage ? assemble(cor, tim, sto, sign, sense) : assemble_tree(cor, tim, sto, sign, sense)
 end
 
 # ---- the core file
@@ -181,7 +197,7 @@ function objsense(path, word)
     error("$path: unknown objective sense $word")
 end
 
-# ---- the time file: where the second stage starts
+# ---- the time file: the period of each column and row
 
 function read_time(path::AbstractString, cor)
     name, starts, periods, section, explicit = "", Tuple{String,String}[], String[], "", false
@@ -189,6 +205,7 @@ function read_time(path::AbstractString, cor)
     for (header, f) in smps_lines(path)
         if header
             section = uppercase(f[1])
+            section == "NAME" && (section = "TIME")    # as some of SMI's files have it
             section == "TIME" && (name = join(f[2:end], " "))
             section == "PERIODS" && (explicit = length(f) > 1 && uppercase(f[2]) == "EXPLICIT")
             section in ("TIME", "PERIODS", "COLUMNS", "ROWS", "ENDATA") ||
@@ -207,21 +224,36 @@ function read_time(path::AbstractString, cor)
             rowperiod[f[1]] = f[2]
         end
     end
-    length(periods) == 2 || error("$path: $(length(periods)) periods; only two are supported for now")
+    length(periods) >= 2 || error("$path: $(length(periods)) period(s); at least two are needed")
+    allunique(periods) || error("$path: a period is given twice")
     (; rowindex, colindex, rows, columns) = cor
-    stage2col, stage2row = if explicit
-        for (c, _) in colperiod
-            haskey(colindex, c) || error("$path: unknown column $c")
+    colstage, rowstage = ones(Int, length(columns)), ones(Int, length(rows))
+    if explicit                                     # a column or row not listed is in the first
+        periodindex = Dict(p => t for (t, p) in enumerate(periods))
+        for (list, index, stage, what) in ((colperiod, colindex, colstage, "column"),
+                                           (rowperiod, rowindex, rowstage, "row"))
+            for (label, p) in list
+                haskey(periodindex, p) || error("$path: unknown period $p of the $what $label")
+                if haskey(index, label)
+                    stage[index[label]] = periodindex[p]
+                elseif what == "column"
+                    error("$path: unknown column $label")
+                end                                 # a row: the objective or another free row
+            end
         end
-        Set(colindex[c] for (c, t) in colperiod if t == periods[2]),
-        Set(rowindex[r] for (r, t) in rowperiod if t == periods[2] && haskey(rowindex, r))
-    else
-        c, r = starts[2]
-        haskey(colindex, c) || error("$path: unknown column $c")
-        haskey(rowindex, r) || error("$path: unknown row $r (the first of the second period)")
-        Set(colindex[c]:length(columns)), Set(rowindex[r]:length(rows))
+    else                                            # each period from its first column and row on
+        for t in 2:length(periods)
+            c, r = starts[t]
+            haskey(colindex, c) || error("$path: unknown column $c (the first of period $(periods[t]))")
+            haskey(rowindex, r) || error("$path: unknown row $r (the first of period $(periods[t]))")
+            t == 2 || (colindex[c] > colindex[starts[t-1][1]] && rowindex[r] > rowindex[starts[t-1][2]]) ||
+                error("$path: period $(periods[t]) starts before period $(periods[t-1]) in the core file")
+            colstage[colindex[c]:end] .= t
+            rowstage[rowindex[r]:end] .= t
+        end
     end
-    return (; name, periods, stage2col, stage2row)
+    stage2col, stage2row = Set(findall(>=(2), colstage)), Set(findall(>=(2), rowstage))
+    return (; name, periods, colstage, rowstage, stage2col, stage2row)
 end
 
 # ---- the stoch file: the random elements and their law
@@ -287,6 +319,7 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
         if header
             section = uppercase(f[1])
             section == "SCEN" && (section = "SCENARIOS")
+            section == "NAME" && (section = "STOCH")    # as some of SMI's files have it
             if section == "STOCH"
                 name = join(f[2:end], " ")
             elseif section in ("INDEP", "BLOCKS", "SCENARIOS")
@@ -363,19 +396,25 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     end
     # the probabilities of each block
     for (k, p) in enumerate(probabilities)
-        total, gap = sum(p), abs(sum(p) - 1)
-        if probability_sums === :as_written
-            gap > 1e-9 && @warn "$path: the probabilities of $(blocks[k]) sum up to $total; kept as written"
-            continue
-        end
-        slack = sum(halfunits[k])
-        probability_sums === :rounding && gap > slack + 1e-12 &&
-            error("$path: the probabilities of $(blocks[k]) sum up to $total, beyond the rounding " *
-                  "of their digits ($slack); pass probability_sums = :normalize or :as_written to read them")
-        gap > 1e-9 && @warn "$path: the probabilities of $(blocks[k]) sum up to $total; normalized"
-        probabilities[k] = p ./ total
+        probabilities[k] = checked_probabilities(path, blocks[k], p, halfunits[k], probability_sums)
     end
     return (; path, name, elementnames, blocks, probabilities, realizations, modifiers, continuous)
+end
+
+"""The probabilities `p` of the outcomes of `block`, written with the half units `halfunits`, as
+`probability_sums` says to take them when they do not sum up to one (see [`read_smps`](@ref))."""
+function checked_probabilities(path, block, p, halfunits, probability_sums::Symbol)
+    total, gap = sum(p), abs(sum(p) - 1)
+    if probability_sums === :as_written
+        gap > 1e-9 && @warn "$path: the probabilities of $block sum up to $total; kept as written"
+        return p
+    end
+    slack = sum(halfunits)
+    probability_sums === :rounding && gap > slack + 1e-12 &&
+        error("$path: the probabilities of $block sum up to $total, beyond the rounding " *
+              "of their digits ($slack); pass probability_sums = :normalize or :as_written to read them")
+    gap > 1e-9 && @warn "$path: the probabilities of $block sum up to $total; normalized"
+    return p ./ total
 end
 
 # ---- the problem
@@ -408,15 +447,7 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
         return sparse(I, J, V, length(rowlist), length(collist))
     end
     A, T, W = matrix(rows1, cols1), matrix(rows2, cols1), matrix(rows2, cols2)
-    # the costs of a maximization negated, + 0.0 so that no zero is negative
-    c = [sign * get(cost, j, 0.0) + 0.0 for j in eachindex(columns)]
-    lb = [get(lower, j, 0.0) for j in eachindex(columns)]
-    ub = [get(upper, j, Inf) for j in eachindex(columns)]
-    for j in eachindex(columns)                     # MPS: a negative upper bound alone frees x
-        !haskey(lower, j) && ub[j] < 0 && (lb[j] = -Inf)
-    end
-    b = [get(rhs, i, 0.0) for i in eachindex(rows)]
-    rg = [get(ranges, i, NaN) for i in eachindex(rows)]
+    (; c, lb, ub, b, rg) = core_vectors(cor, sign)
     # the random elements: where they are, their values in the core file (unsigned)
     elements = map(sto.elementnames) do (col, row)
         if haskey(colindex, col)
@@ -447,4 +478,188 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
                        lb[cols2], ub[cols2], [j in integer for j in cols2], sign * cor.constant + 0.0,
                        columns[cols1], columns[cols2], rows[rows1], rows[rows2],
                        elements, sto.elementnames, law)
+end
+
+"""The costs (those of a maximization negated), the bounds, the right-hand sides and the ranges
+of the core file `cor`, as vectors in its order."""
+function core_vectors(cor, sign::Float64)
+    (; rows, columns, cost, rhs, ranges, lower, upper) = cor
+    c = [sign * get(cost, j, 0.0) + 0.0 for j in eachindex(columns)]   # + 0.0: no negative zero
+    lb = [get(lower, j, 0.0) for j in eachindex(columns)]
+    ub = [get(upper, j, Inf) for j in eachindex(columns)]
+    for j in eachindex(columns)                     # MPS: a negative upper bound alone frees x
+        !haskey(lower, j) && ub[j] < 0 && (lb[j] = -Inf)
+    end
+    b = [get(rhs, i, 0.0) for i in eachindex(rows)]
+    rg = [get(ranges, i, NaN) for i in eachindex(rows)]
+    return (; c, lb, ub, b, rg)
+end
+
+# ---- the stoch file of an instance in more than two periods: its scenario tree
+
+const BOUND_TYPES = ("UP", "LO", "FX", "FR", "MI", "PL", "BV", "LI", "UI")
+
+function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
+    (; rowindex, colindex, entries, objective, rangenames, boundnames) = cor
+    (; periods, colstage, rowstage) = tim
+    periodindex = Dict(p => t for (t, p) in enumerate(periods))
+    # the random elements: (col, row) names => index, and their periods
+    elementindex = Dict{Tuple{String,String},Int}()
+    elementnames, elementperiod = Tuple{String,String}[], Int[]
+    function element(col, row)
+        get!(elementindex, (col, row)) do
+            t = if haskey(colindex, col)
+                j = colindex[col]
+                if row == objective
+                    colstage[j]
+                else
+                    haskey(rowindex, row) || error("$path: unknown row $row")
+                    haskey(entries, (rowindex[row], j)) ||
+                        error("$path: random entry ($row, $col) absent from the core file")
+                    rowstage[rowindex[row]]
+                end
+            else
+                col in rangenames && error("$path: random range of $row: not supported")
+                col in boundnames && error("$path: random bound of $row: not supported")
+                row == objective && error("$path: random constant of the objective: not supported")
+                haskey(rowindex, row) || error("$path: unknown row $row")
+                rowstage[rowindex[row]]
+            end
+            push!(elementnames, (col, row))
+            push!(elementperiod, t)
+            return length(elementnames)
+        end
+    end
+    # the scenarios, as given
+    names, parents, branch = String[], String[], Int[]
+    probabilities, halfunits = Float64[], Float64[]
+    given = Dict{Int,Float64}[]                     # per scenario: element => value
+    scenarioindex = Dict{String,Int}()
+    name, section = "", ""
+    for (header, f) in smps_lines(path)
+        if header
+            section = uppercase(f[1])
+            section == "SCEN" && (section = "SCENARIOS")
+            section == "NAME" && (section = "STOCH")
+            if section == "STOCH"
+                name = join(f[2:end], " ")
+            elseif section == "SCENARIOS"
+                kind = length(f) > 1 ? uppercase(f[2]) : "DISCRETE"
+                kind == "DISCRETE" || error("$path: SCENARIOS $kind is not supported, only DISCRETE")
+                word = length(f) > 2 ? uppercase(f[3]) : "REPLACE"
+                word == "REPLACE" ||
+                    error("$path: SCENARIOS $word is not supported: scenarios replace the values")
+            elseif section in ("INDEP", "BLOCKS")
+                error("$path: $section in $(length(periods)) periods is not supported, only SCENARIOS")
+            elseif section != "ENDATA"
+                error("$path: section $section is not supported")
+            end
+            continue
+        end
+        section == "SCENARIOS" || error("$path: data outside a SCENARIOS section: $(join(f, ' '))")
+        if f[1] == "SC"
+            length(f) >= 5 || error("$path: incomplete SC line $(join(f, ' ')): a scenario needs " *
+                                    "a name, a parent, a probability and a period")
+            scenario, parent, period = f[2], strip(f[3], '\''), strip(f[5], '\'')
+            haskey(scenarioindex, scenario) && error("$path: scenario $scenario given twice")
+            parent == "ROOT" || haskey(scenarioindex, parent) ||
+                error("$path: scenario $scenario branches from $parent, not given before it")
+            haskey(periodindex, period) || error("$path: unknown period $period of scenario $scenario")
+            push!(names, scenario)
+            push!(parents, parent)
+            push!(branch, periodindex[period])
+            push!(probabilities, number(f[4]))
+            push!(halfunits, half_unit(f[4]))
+            push!(given, Dict{Int,Float64}())
+            scenarioindex[scenario] = length(names)
+        else
+            isempty(names) && error("$path: an entry before the first SC line")
+            length(f) == 4 && uppercase(f[1]) in BOUND_TYPES &&
+                error("$path: random bound of $(f[3]): not supported")
+            length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
+            s = length(names)
+            for k in 2:2:(length(f) - 1)
+                e = element(f[1], f[k])
+                elementperiod[e] >= branch[s] ||
+                    error("$path: scenario $(names[s]) branches in period $(periods[branch[s]]), but " *
+                          "changes ($(f[1]), $(f[k])), of period $(periods[elementperiod[e]])")
+                given[s][e] = number(f[k+1])
+            end
+        end
+    end
+    if isempty(names)                               # no scenario: the core problem alone
+        push!(names, "")
+        push!(parents, "ROOT")
+        push!(branch, 1)
+        push!(probabilities, 1.0)
+        push!(halfunits, 0.0)
+        push!(given, Dict{Int,Float64}())
+    end
+    probabilities = checked_probabilities(path, "the scenarios", probabilities, halfunits,
+                                          probability_sums)
+    # the values of each scenario: its parent's, and those it gives
+    values = Vector{Dict{Int,Float64}}(undef, length(names))
+    for s in eachindex(names)
+        values[s] = parents[s] == "ROOT" ? copy(given[s]) :
+                    merge(values[scenarioindex[parents[s]]], given[s])
+    end
+    # the nodes: a scenario shares its parent's before its branching period, has its own after
+    T = length(periods)
+    nodeperiod, parentnode, owner = Int[], Int[], Int[]    # owner: whose values, 0 for the core
+    rootnodes = Dict{Int,Int}()                     # the nodes of ROOT, by period
+    newnode(t, p, o) = (push!(nodeperiod, t); push!(parentnode, p); push!(owner, o); length(owner))
+    paths = [zeros(Int, T) for _ in names]
+    for s in eachindex(names)
+        parent = parents[s] == "ROOT" ? 0 : scenarioindex[parents[s]]
+        for t in 1:T
+            previous = t == 1 ? 0 : paths[s][t-1]
+            paths[s][t] = if t >= branch[s]
+                newnode(t, previous, s)
+            elseif parent == 0
+                get!(() -> newnode(t, previous, 0), rootnodes, t)
+            else
+                paths[parent][t]
+            end
+        end
+    end
+    roots = count(==(1), nodeperiod)
+    roots == 1 || error("$path: $roots nodes in the first period, $(periods[1]): only one scenario " *
+                        "may branch from ROOT in the first period, and then no other from ROOT")
+    nodeprobability = zeros(length(nodeperiod))
+    for (s, nodes) in enumerate(paths), n in nodes
+        nodeprobability[n] += probabilities[s]
+    end
+    nodevalues = map(eachindex(owner)) do n
+        o = owner[n]
+        o == 0 ? Pair{Int,Float64}[] :
+        sort!([e => v for (e, v) in values[o] if elementperiod[e] == nodeperiod[n]])
+    end
+    return (; path, name, elementnames, elementperiod, nodeperiod, parentnode, nodeprobability,
+            nodevalues, paths, names, probabilities)
+end
+
+function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
+    (; rows, senses, columns, rowindex, colindex, entries, integer, objective) = cor
+    (; periods, colstage, rowstage) = tim
+    I, J, V = Int[], Int[], Float64[]
+    for ((i, j), v) in entries
+        colstage[j] <= rowstage[i] ||
+            error("the variable $(columns[j]) of period $(periods[colstage[j]]) in the row " *
+                  "$(rows[i]) of period $(periods[rowstage[i]])")
+        push!(I, i); push!(J, j); push!(V, v)
+    end
+    A = sparse(I, J, V, length(rows), length(columns))  # the zeros written kept as entries
+    (; c, lb, ub, b, rg) = core_vectors(cor, sign)
+    elements = map(tr.elementnames) do (col, row)
+        haskey(colindex, col) || return (:rhs, rowindex[row], 0)
+        row == objective && return (:c, colindex[col], 0)
+        return (:A, rowindex[row], colindex[col])
+    end
+    signs = [kind === :c ? sign : 1.0 for (kind, _, _) in elements]
+    values = [[e => signs[e] * v + 0.0 for (e, v) in node] for node in tr.nodevalues]
+    return SMPSTree(cor.name, sense, objective, periods, columns, rows, colstage, rowstage, c, A,
+                    senses, b, rg, lb, ub, [j in integer for j in eachindex(columns)],
+                    sign * cor.constant + 0.0, elements, tr.elementnames, tr.elementperiod,
+                    tr.nodeperiod, tr.parentnode, tr.nodeprobability, values, tr.paths, tr.names,
+                    tr.probabilities)
 end
