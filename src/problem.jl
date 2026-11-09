@@ -15,7 +15,9 @@ A two-stage problem read by [`read_smps`](@ref):
 - **Random elements**: `elements` lists them as `(kind, i, j)`. `(:h, i, 0)` is the right-hand
   side of the second-stage row `i`; `(:T, i, j)` the coefficient of the first-stage variable `j`
   in that row; `(:W, i, j)` that of the second-stage variable `j`; `(:q, j, 0)` the cost of the
-  second-stage variable `j`. `names` gives, for each, the column and row names of the files.
+  second-stage variable `j`; `(:lb, j, 0)` and `(:ub, j, 0)` its lower and upper bounds. `names`
+  gives, for each, the column and row names of the files, or, for a bound, its type (`LO` or `UP`)
+  and the column.
   `law` is their law; [`second_stage`](@ref) gives the data of the second stage for one `ξ`.
 - **Sense**: `sense` is `:min` or `:max`. A maximization is stored as the minimization of the
   opposite objective: every cost, random ones included, and the constant, are negated.
@@ -84,12 +86,14 @@ end
     second_stage(smps::SMPSProblem, ξ)
 
 The data of the second stage when the random elements take the values `ξ`: the named tuple
-`(q = ..., T = ..., W = ..., h = ...)`, copies of those of `smps` with the random elements set.
+`(q = ..., T = ..., W = ..., h = ..., lb = ..., ub = ...)`, copies of those of `smps` with the
+random elements set.
 """
 function second_stage(smps::SMPSProblem, ξ::AbstractVector)
     length(ξ) == length(smps.elements) ||
         error("ξ has $(length(ξ)) values for $(length(smps.elements)) random elements")
     q, h, T, W = copy(smps.q), copy(smps.h), copy(smps.T), copy(smps.W)
+    lb, ub = copy(smps.lb), copy(smps.ub)
     for (k, (kind, i, j)) in enumerate(smps.elements)
         if kind === :h
             h[i] = ξ[k]
@@ -97,9 +101,13 @@ function second_stage(smps::SMPSProblem, ξ::AbstractVector)
             q[i] = ξ[k]
         elseif kind === :T
             T[i, j] = ξ[k]
-        else
+        elseif kind === :W
             W[i, j] = ξ[k]
+        elseif kind === :lb
+            lb[i] = ξ[k]
+        else
+            ub[i] = ξ[k]
         end
     end
-    return (q = q, T = T, W = W, h = h)
+    return (q = q, T = T, W = W, h = h, lb = lb, ub = ub)
 end

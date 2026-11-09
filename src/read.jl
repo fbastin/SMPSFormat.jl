@@ -8,10 +8,12 @@ Read an instance in the SMPS format: an instance in two periods into an [`SMPSPr
 one in more periods into an [`SMPSTree`](@ref), its scenario tree. `read_smps(prefix)` looks for
 `prefix` followed by `.cor` or `.core`, `.tim` or `.time`, and `.sto` or `.stoch`.
 
-**The core file** is in free MPS format: `NAME`, `OBJSENSE`, `ROWS`, `COLUMNS` (with integer
-markers), `RHS`, `RANGES` and `BOUNDS` (`UP`, `LO`, `FX`, `FR`, `MI`, `PL`, `BV`, `LI`, `UI`).
-Integer variables without bounds lie in `[0, ∞)`. A negative upper bound alone frees the lower
-one, as in MPS.
+**The core file** is in free MPS format: `NAME`, `OBJSENSE`, `OBJNAME`, `ROWS`, `COLUMNS` (with
+integer markers), `RHS`, `RANGES` and `BOUNDS` (`UP`, `LO`, `FX`, `FR`, `MI`, `PL`, `BV`, `LI`,
+`UI`). Integer variables without bounds lie in `[0, ∞)`. A negative upper bound alone frees the
+lower one, as in MPS. As MPS and CoinMpsIO read them: the objective is the first row of type `N`,
+or the one `OBJNAME` names; of several `RHS`, `RANGES` or `BOUNDS` vectors, only the first is
+used, with a warning; a line with a hash in the first column is a comment.
 
 **The time file** gives the periods, implicitly (the first column and row of each, the core file
 being in temporal order) or explicitly (`PERIODS EXPLICIT`, then the period of each column and
@@ -24,6 +26,9 @@ right-hand sides, matrix coefficients and costs of the second stage:
   `LOGNORM` (mean and variance of the logarithm). A continuous law can be sampled only.
 - `BLOCKS DISCRETE`: an element a realization does not list takes its value in the block's first
   realization, as the format says.
+- Random bounds of second-stage variables, in `BLOCKS` and `SCENARIOS` sections, written as the
+  core file's `BOUNDS` section writes them (` UP BND X1 5.0`): `UP` sets the upper bound, `LO`
+  the lower one, `FX` both; the other types are refused.
 - `SCENARIOS DISCRETE` (or `SCEN`) in two stages: each scenario branches from `ROOT`, or from
   another scenario at the second period, and inherits the values it does not list from its
   parent (the core file for `ROOT`).
@@ -35,15 +40,16 @@ DISCRETE` (or `SCEN`) section, `REPLACE`: each scenario branches from `ROOT`, or
 given before it, in the period its `SC` line gives. Before that period it shares the nodes of its
 parent; from that period on it has nodes of its own, and inherits the values it does not list
 from its parent (the core file for `ROOT`). It may change only data of its branching period or
-later: right-hand sides, matrix coefficients and costs. The tree has one node in the first
+later: right-hand sides, matrix coefficients, costs and bounds (`UP`, `LO`, `FX`, written as in
+the core file's `BOUNDS` section). The tree has one node in the first
 period: a scenario branching from `ROOT` in the first period, as in the SGPF files of POSTS, must
 be the only child of `ROOT`, and then sets the data of the first period. Without any scenario,
 the tree is a single one, the core problem.
 
 Not supported, and refused: `NODES`, `DISTRIB`, `MVNORMAL`, `LINTRAN` and user-defined
 distributions, `INDEP` and `BLOCKS` in more than two periods, chance constraints (`CHANCE`, `ICC`),
-`SIMPLE` recourse, random bounds and ranges, random first-stage data in two periods, network core
-files.
+`SIMPLE` recourse, random ranges, random bounds in `INDEP` sections or of types other than `UP`,
+`LO` and `FX`, random first-stage data in two periods, network core files.
 
 **The names** on the first lines of the three files should be the same; when they are not, as in
 several files of SPLIB, a warning. A time or stoch file whose first section is `NAME`, instead of
@@ -103,6 +109,11 @@ function read_core(path::AbstractString)
     rhsnames, rangenames, boundnames = Set{String}(), Set{String}(), Set{String}()
     constant, section, intmarker = 0.0, "", false
     ignored = Set{String}()                         # the other free rows
+    objname = ""                                    # the objective row an OBJNAME section names
+    # the vectors of the RHS, RANGES and BOUNDS sections, in their order: only the first is used
+    vectors = Dict(s => String[] for s in ("RHS", "RANGES", "BOUNDS"))
+    first_vector(section, label) = (label in vectors[section] || push!(vectors[section], label);
+                                    label == vectors[section][1])
     for (header, f) in smps_lines(path)
         if header
             section = uppercase(f[1])
@@ -110,17 +121,22 @@ function read_core(path::AbstractString)
                 name = join(f[2:end], " ")
             elseif section == "OBJSENSE" && length(f) > 1
                 sense = objsense(path, f[2])
-            elseif !(section in ("OBJSENSE", "ROWS", "COLUMNS", "RHS", "RANGES", "BOUNDS", "ENDATA"))
+            elseif section == "OBJNAME" && length(f) > 1
+                objname = f[2]
+            elseif !(section in ("OBJSENSE", "OBJNAME", "ROWS", "COLUMNS", "RHS", "RANGES", "BOUNDS", "ENDATA"))
                 error("$path: section $section is not supported")
             end
             continue
         end
         if section == "OBJSENSE"
             sense = objsense(path, f[1])
+        elseif section == "OBJNAME"
+            objname = f[1]
         elseif section == "ROWS"
             kind, row = uppercase(f[1]), f[2]
             if kind == "N"
-                isempty(objective) ? (objective = row) : push!(ignored, row)
+                (isempty(objname) ? isempty(objective) : row == objname) ? (objective = row) :
+                push!(ignored, row)
             elseif kind in ("L", "G", "E")
                 push!(rows, row)
                 push!(senses, kind[1])
@@ -151,7 +167,10 @@ function read_core(path::AbstractString)
             end
         elseif section in ("RHS", "RANGES")
             start = isodd(length(f)) ? 2 : 1        # the name of the vector is optional
-            start == 2 && push!(section == "RHS" ? rhsnames : rangenames, f[1])
+            if start == 2
+                push!(section == "RHS" ? rhsnames : rangenames, f[1])
+                first_vector(section, f[1]) || continue
+            end
             for k in start:2:(length(f) - 1)
                 row, value = f[k], number(f[k+1])
                 if row == objective
@@ -169,7 +188,10 @@ function read_core(path::AbstractString)
             else
                 length(f) >= 4 ? (f[3], number(f[4])) : (f[2], number(f[3]))
             end
-            length(f) >= 3 && !haskey(colindex, f[2]) && push!(boundnames, f[2])
+            if length(f) >= 3 && !haskey(colindex, f[2])   # the name of the vector
+                push!(boundnames, f[2])
+                first_vector("BOUNDS", f[2]) || continue
+            end
             haskey(colindex, col) || error("$path: unknown column $col in section BOUNDS")
             j = colindex[col]
             kind == "UP" && (upper[j] = value)
@@ -185,7 +207,13 @@ function read_core(path::AbstractString)
                 error("$path: bound type $kind is not supported")
         end
     end
-    isempty(objective) && error("$path: no objective row (type N)")
+    isempty(objective) && error("$path: " * (isempty(objname) ? "no objective row (type N)" :
+                                              "no row $objname of type N, the one OBJNAME names"))
+    for section in ("RHS", "RANGES", "BOUNDS")
+        list = vectors[section]
+        length(list) > 1 && @warn "$path: several $section vectors ($(join(list, ", "))): only the " *
+                                  "first, $(list[1]), is used, as in MPS"
+    end
     return (; name, objective, sense, rows, senses, columns, rowindex, colindex, entries, cost,
             rhs, ranges, lower, upper, integer, constant, rhsnames, rangenames, boundnames)
 end
@@ -259,6 +287,7 @@ end
 # ---- the stoch file: the random elements and their law
 
 const DISTRIBUTIONS = ("DISCRETE", "UNIFORM", "NORMAL", "GAMMA", "BETA", "LOGNORM")
+const BOUND_TYPES = ("UP", "LO", "FX", "FR", "MI", "PL", "BV", "LI", "UI")
 
 """The continuous distribution `kind` of an `INDEP` element, from its two parameters."""
 function distribution(path, kind, p1, p2)
@@ -298,10 +327,26 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
                     error("$path: random right-hand side of the first-stage row $row")
             end
             push!(elementnames, (col, row))
+            push!(elementbound, :none)
             return length(elementnames)
         end
         get!(owner, e, block) == block ||
             error("$path: ($col, $row) is random in two blocks, $(owner[e]) and $block")
+        return e
+    end
+    # a random bound, :lb or :ub, of a column: its names are the bound type and the column
+    elementbound = Symbol[]                          # per element: :lb, :ub, or :none
+    boundindex = Dict{Tuple{Symbol,String},Int}()
+    function bound_element(kind, col, block)
+        e = get!(boundindex, (kind, col)) do
+            haskey(colindex, col) || error("$path: unknown column $col in a random bound")
+            colindex[col] in stage2col || error("$path: random bound of the first-stage column $col")
+            push!(elementnames, (kind === :lb ? "LO" : "UP", col))
+            push!(elementbound, kind)
+            return length(elementnames)
+        end
+        get!(owner, e, block) == block ||
+            error("$path: the bound of $col is random in two blocks, $(owner[e]) and $block")
         return e
     end
     blocks = String[]                                # the names of the discrete blocks
@@ -340,6 +385,8 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
         end
         if section == "INDEP"
             col, row = f[1], f[2]
+            uppercase(f[1]) in BOUND_TYPES && length(f) >= 3 && f[2] in boundnames &&
+                error("$path: random bound in an INDEP section: not supported")
             length(f) in (4, 5) || error("$path: malformed INDEP line $(join(f, ' '))")
             if kind == "DISCRETE"
                 label = "INDEP ($col, $row)"
@@ -387,6 +434,13 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             push!(halfunits[k], half_unit(prob))
         elseif section in ("BLOCKS", "SCENARIOS")
             current == 0 && error("$path: an entry before the first BL or SC line")
+            if is_bound_line(f, boundnames)
+                kinds, col, value = bound_line(path, f)
+                for kind in kinds
+                    realizations[current][end][bound_element(kind, col, blocks[current])] = value
+                end
+                continue
+            end
             length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
             for k in 2:2:(length(f) - 1)
                 e = element(f[1], f[k], blocks[current])
@@ -398,7 +452,24 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     for (k, p) in enumerate(probabilities)
         probabilities[k] = checked_probabilities(path, blocks[k], p, halfunits[k], probability_sums)
     end
-    return (; path, name, elementnames, blocks, probabilities, realizations, modifiers, continuous)
+    return (; path, name, elementnames, elementbound, blocks, probabilities, realizations, modifiers,
+            continuous)
+end
+
+"""Whether the fields `f` of a stoch file are a random bound, as the core file's BOUNDS section
+writes a bound: its type, the name of the vector (one of `boundnames` if the line has no value),
+the column, the value."""
+is_bound_line(f, boundnames) = uppercase(f[1]) in BOUND_TYPES &&
+                               (length(f) == 4 || (length(f) == 3 && f[2] in boundnames))
+
+"""The bounds, `[:ub]`, `[:lb]` or `[:lb, :ub]`, a random bound line sets, its column and value:
+the types `UP`, `LO` and `FX` only."""
+function bound_line(path, f)
+    kind = uppercase(f[1])
+    kind in ("UP", "LO", "FX") ||
+        error("$path: random bound of type $kind: not supported, only UP, LO and FX")
+    length(f) == 4 || error("$path: random bound without a value: $(join(f, ' '))")
+    return (kind == "UP" ? [:ub] : kind == "LO" ? [:lb] : [:lb, :ub]), f[3], number(f[4])
 end
 
 """The probabilities `p` of the outcomes of `block`, written with the half units `halfunits`, as
@@ -449,7 +520,8 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
     A, T, W = matrix(rows1, cols1), matrix(rows2, cols1), matrix(rows2, cols2)
     (; c, lb, ub, b, rg) = core_vectors(cor, sign)
     # the random elements: where they are, their values in the core file (unsigned)
-    elements = map(sto.elementnames) do (col, row)
+    elements = map(sto.elementnames, sto.elementbound) do (col, row), bound
+        bound === :none || return (bound, position[colindex[row]], 0)  # names: type, column
         if haskey(colindex, col)
             j = colindex[col]
             row == objective && return (:q, position[j], 0)
@@ -457,7 +529,8 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
         end
         return (:h, rowposition[rowindex[row]], 0)
     end
-    core = map(sto.elementnames) do (col, row)
+    core = map(sto.elementnames, sto.elementbound) do (col, row), bound
+        bound === :none || return (bound === :lb ? lb : ub)[colindex[row]]
         haskey(colindex, col) || return b[rowindex[row]]
         j = colindex[col]
         return row == objective ? get(cost, j, 0.0) : entries[(rowindex[row], j)]
@@ -497,8 +570,6 @@ end
 
 # ---- the stoch file of an instance in more than two periods: its scenario tree
 
-const BOUND_TYPES = ("UP", "LO", "FX", "FR", "MI", "PL", "BV", "LI", "UI")
-
 function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
     (; rowindex, colindex, entries, objective, rangenames, boundnames) = cor
     (; periods, colstage, rowstage) = tim
@@ -527,8 +598,19 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
             end
             push!(elementnames, (col, row))
             push!(elementperiod, t)
+            push!(elementbound, :none)
             return length(elementnames)
         end
+    end
+    # a random bound, :lb or :ub, of a column: its names are the bound type and the column
+    elementbound = Symbol[]
+    boundindex = Dict{Tuple{Symbol,String},Int}()
+    bound_element(kind, col) = get!(boundindex, (kind, col)) do
+        haskey(colindex, col) || error("$path: unknown column $col in a random bound")
+        push!(elementnames, (kind === :lb ? "LO" : "UP", col))
+        push!(elementperiod, colstage[colindex[col]])
+        push!(elementbound, kind)
+        return length(elementnames)
     end
     # the scenarios, as given
     names, parents, branch = String[], String[], Int[]
@@ -574,16 +656,19 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
             scenarioindex[scenario] = length(names)
         else
             isempty(names) && error("$path: an entry before the first SC line")
-            length(f) == 4 && uppercase(f[1]) in BOUND_TYPES &&
-                error("$path: random bound of $(f[3]): not supported")
-            length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
             s = length(names)
-            for k in 2:2:(length(f) - 1)
-                e = element(f[1], f[k])
+            changes = if is_bound_line(f, boundnames)
+                kinds, col, value = bound_line(path, f)
+                [(bound_element(kind, col), value) for kind in kinds]
+            else
+                length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
+                [(element(f[1], f[k]), number(f[k+1])) for k in 2:2:(length(f) - 1)]
+            end
+            for (e, value) in changes
                 elementperiod[e] >= branch[s] ||
                     error("$path: scenario $(names[s]) branches in period $(periods[branch[s]]), but " *
-                          "changes ($(f[1]), $(f[k])), of period $(periods[elementperiod[e]])")
-                given[s][e] = number(f[k+1])
+                          "changes $(join(elementnames[e], ' ')), of period $(periods[elementperiod[e]])")
+                given[s][e] = value
             end
         end
     end
@@ -634,8 +719,8 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
         o == 0 ? Pair{Int,Float64}[] :
         sort!([e => v for (e, v) in values[o] if elementperiod[e] == nodeperiod[n]])
     end
-    return (; path, name, elementnames, elementperiod, nodeperiod, parentnode, nodeprobability,
-            nodevalues, paths, names, probabilities)
+    return (; path, name, elementnames, elementperiod, elementbound, nodeperiod, parentnode,
+            nodeprobability, nodevalues, paths, names, probabilities)
 end
 
 function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
@@ -650,7 +735,8 @@ function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
     end
     A = sparse(I, J, V, length(rows), length(columns))  # the zeros written kept as entries
     (; c, lb, ub, b, rg) = core_vectors(cor, sign)
-    elements = map(tr.elementnames) do (col, row)
+    elements = map(tr.elementnames, tr.elementbound) do (col, row), bound
+        bound === :none || return (bound, colindex[row], 0)    # names: type, column
         haskey(colindex, col) || return (:rhs, rowindex[row], 0)
         row == objective && return (:c, colindex[col], 0)
         return (:A, rowindex[row], colindex[col])

@@ -54,7 +54,7 @@ function SMPSFormat.extensive_form(smps::SMPSProblem, ξ::AbstractVector, p::Abs
     y = Vector{Vector{VariableRef}}(undef, length(ξ))
     for s in eachindex(ξ, p)
         data = second_stage(smps, ξ[s])
-        y[s] = bounded_variables(model, smps.lb, smps.ub, smps.integer2, "y_$s")
+        y[s] = bounded_variables(model, data.lb, data.ub, smps.integer2, "y_$s")
         add_rows!(model, ((data.T, x), (data.W, y[s])), smps.senses2, data.h, smps.ranges2)
         for (j, qj) in enumerate(data.q)
             qj == 0 || add_to_expression!(objective, p[s] * qj, y[s][j])
@@ -83,8 +83,10 @@ function SMPSFormat.extensive_form(tree::SMPSTree; optimizer = nothing)
         t = tree.nodeperiod[n]
         ancestors[n] = t == 1 ? [n] : [ancestors[tree.parent[n]]; n]
         J = cols[t]
-        x[n] = bounded_variables(model, tree.lb[J], tree.ub[J], tree.integer[J], "x_$n")
         random = Dict(tree.elements[e] => v for (e, v) in tree.values[n])
+        lb = [get(random, (:lb, j, 0), tree.lb[j]) for j in J]
+        ub = [get(random, (:ub, j, 0), tree.ub[j]) for j in J]
+        x[n] = bounded_variables(model, lb, ub, tree.integer[J], "x_$n")
         for (k, j) in enumerate(J)
             cj = get(random, (:c, j, 0), tree.c[j])
             cj == 0 || add_to_expression!(objective, tree.probability[n] * cj, x[n][k])

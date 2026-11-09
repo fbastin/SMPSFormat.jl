@@ -15,8 +15,9 @@ A problem in more than two periods read by [`read_smps`](@ref), with a discrete 
   `colperiod[j]` and `rowperiod[i]` give the period of each column and row, among `periods`.
 - **Random elements**: `elements` lists them as `(kind, i, j)`: `(:rhs, i, 0)` is the right-hand
   side of row `i`; `(:A, i, j)` the coefficient of column `j` in row `i`; `(:c, j, 0)` the cost of
-  column `j`. `names` gives, for each, the column and row names of the files, and
-  `elementperiod` its period: that of its row, or of its column for a cost.
+  column `j`; `(:lb, j, 0)` and `(:ub, j, 0)` its lower and upper bounds. `names` gives, for each,
+  the column and row names of the files, or, for a bound, its type (`LO` or `UP`) and the column;
+  `elementperiod` its period: that of its row, or of its column for a cost or a bound.
 - **The tree**: node `n` lies in period `nodeperiod[n]`, has the parent `parent[n]` (0 for the
   root, node 1) and the probability `probability[n]`, the sum of those of the scenarios through
   it. `values[n]` holds the values its random elements of that period take there (`element =>
@@ -72,22 +73,26 @@ end
     scenario_data(tree::SMPSTree, s)
 
 The data of scenario `s` over all periods, the random elements of each period set to their
-values at the node of `s` in that period: the named tuple `(c = ..., A = ..., rhs = ...)`, copies
-of those of `tree`. The senses, ranges and bounds are those of `tree`.
+values at the node of `s` in that period: the named tuple `(c = ..., A = ..., rhs = ..., lb = ...,
+ub = ...)`, copies of those of `tree`. The senses and ranges are those of `tree`.
 """
 function scenario_data(tree::SMPSTree, s::Integer)
-    c, A, rhs = copy(tree.c), copy(tree.A), copy(tree.rhs)
+    c, A, rhs, lb, ub = copy(tree.c), copy(tree.A), copy(tree.rhs), copy(tree.lb), copy(tree.ub)
     for n in tree.scenarios[s], (e, v) in tree.values[n]
         kind, i, j = tree.elements[e]
         if kind === :rhs
             rhs[i] = v
         elseif kind === :c
             c[i] = v
-        else
+        elseif kind === :A
             A[i, j] = v
+        elseif kind === :lb
+            lb[i] = v
+        else
+            ub[i] = v
         end
     end
-    return (c = c, A = A, rhs = rhs)
+    return (c = c, A = A, rhs = rhs, lb = lb, ub = ub)
 end
 
 """

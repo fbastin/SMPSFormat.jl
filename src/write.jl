@@ -109,9 +109,21 @@ end
 """The column and row names of the random element `e` as the core file written gives them."""
 function element_names(smps::SMPSProblem, e::Integer)
     kind, i, j = smps.elements[e]
+    kind in (:lb, :ub) && return (kind === :lb ? "LO" : "UP", smps.columns2[i])
     kind === :h && return ("RHS", smps.rows2[i])
     kind === :q && return (smps.columns2[i], smps.objective)
     return (kind === :T ? smps.columns1[j] : smps.columns2[j], smps.rows2[i])
+end
+
+"""The line of the stoch file giving the value `v` to the random element `e`: a bound as the core
+file's BOUNDS section writes it, the others by their column and row."""
+function element_line(io::IO, smps::SMPSProblem, e::Integer, v)
+    a, b = element_names(smps, e)
+    if smps.elements[e][1] in (:lb, :ub)
+        println(io, " ", rpad(a, 3), rpad("BND", 10), "  ", rpad(b, 10), "  ", num(v))
+    else
+        entry(io, a, b, v)
+    end
 end
 
 """The keyword and the two parameters of a continuous distribution, as the stoch file gives them."""
@@ -137,7 +149,7 @@ function write_stoch(io::IO, smps::SMPSProblem, scenarios)
             println(io, " SC ", rpad("S$s", 10), "  ROOT        ", num(ps), "  PERIOD2")
             for e in eachindex(point)
                 point[e] == law.base[e] && continue    # inherited from the core file
-                entry(io, element_names(smps, e)..., signs[e] * point[e])
+                element_line(io, smps, e, signs[e] * point[e])
             end
         end
         println(io, "ENDATA")
@@ -151,7 +163,9 @@ function write_stoch(io::IO, smps::SMPSProblem, scenarios)
         members = unique(e for outcome in outcomes for (e, _) in outcome)
         # a block that changes nothing still counts its outcomes: last, in BLOCKS
         isempty(members) && (push!(items, (typemax(Int), :blocks, k)); continue)
-        single = all(o -> length(o) == 1, outcomes) && length(members) == 1
+        # a bound may not be random in an INDEP section
+        single = all(o -> length(o) == 1, outcomes) && length(members) == 1 &&
+                 !(smps.elements[members[1]][1] in (:lb, :ub))
         push!(items, (minimum(members), single ? :indep : :blocks, k))
     end
     foreach(((k, c),) -> push!(items, (c[1], :continuous, k)), enumerate(law.continuous))
@@ -183,7 +197,7 @@ function write_stoch(io::IO, smps::SMPSProblem, scenarios)
                 println(io, " BL ", rpad("B$k", 10), "  PERIOD2  ", num(pk))
                 values = Dict(outcome)
                 for e in members                     # every element, explicitly
-                    entry(io, element_names(smps, e)..., signs[e] * get(values, e, law.base[e]))
+                    element_line(io, smps, e, signs[e] * get(values, e, law.base[e]))
                 end
             end
         end

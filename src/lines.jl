@@ -1,16 +1,17 @@
 # The lines of an SMPS file, and the digits of its numbers.
 
-const SECTIONS = ("NAME", "OBJSENSE", "ROWS", "COLUMNS", "RHS", "RANGES", "BOUNDS", "ENDATA",
+const SECTIONS = ("NAME", "OBJSENSE", "OBJNAME", "ROWS", "COLUMNS", "RHS", "RANGES", "BOUNDS", "ENDATA",
                   "TIME", "PERIODS", "STOCH", "INDEP", "BLOCKS", "SCENARIOS", "SCEN")
 
 """The fields of the meaningful lines of an SMPS file, each with whether it is a section header:
-no comments (an asterisk first), no blank lines. A header starts in the first column, or is a
-lone keyword indented by mistake (as in SPLIB's stocfor1)."""
+no comments (an asterisk first, or a hash in the first column, as CoinMpsIO reads them), no blank
+lines. A header starts in the first column, or is a lone keyword indented by mistake (as in
+SPLIB's stocfor1)."""
 function smps_lines(path::AbstractString)
     lines = Tuple{Bool,Vector{String}}[]
     for line in eachline(path)
         stripped = strip(line)
-        (isempty(stripped) || startswith(stripped, '*')) && continue
+        (isempty(stripped) || startswith(stripped, '*') || line[1] == '#') && continue
         fields = String.(split(stripped))
         header = !isspace(line[1]) || (length(fields) <= 2 && uppercase(fields[1]) in SECTIONS)
         push!(lines, (header, fields))

@@ -332,7 +332,8 @@ end
                "SC B         A         1.0            PERIOD2\n",
                "SC A         ROOT      1.0\n",
                "SC A         ROOT      1.0            PERIOD9\n",
-               "SC A         ROOT      1.0            PERIOD2\n UP BND       Y1        5.0\n",
+               "SC A         ROOT      1.0            PERIOD2\n FR BND       Y1\n",
+               "SC A         ROOT      1.0            PERIOD3\n UP BND       Y1        5.0\n",
                "SC A         ROOT      1.0            PERIOD2\n    RNG       BAL       1.0\n",
                "SC A         ROOT      1.0            PERIOD2\n    Y2        DEM1      1.0\n")
         for scenarios in bad
@@ -345,6 +346,77 @@ end
         @test_throws ErrorException read_smps(instance(
             "STOCH         TOY\nSCENARIOS     DISCRETE                ADD\n SC A         ROOT      1.0            PERIOD2\nENDATA\n";
             time = THREE))
+    end
+
+    @testset "The core file: several vectors, OBJNAME, comments with a hash" begin
+        several = replace(TOY_CORE,
+            "    RHS       DEM2      3.0            BAL       8.0\n" =>
+            "    RHS       DEM2      3.0            BAL       8.0\n    RHS2      CAP       99.0\n",
+            "    RNG       BAL       -2.0\n" => "    RNG       BAL       -2.0\n    RNG2      BAL       -5.0\n",
+            " UP BND       X1        8.0\n" => " UP BND       X1        8.0\n UP BND2      X1        3.0\n")
+        smps = @test_logs (:warn, r"several RHS vectors") (:warn, r"several RANGES vectors") (:warn,
+                          r"several BOUNDS vectors") read_smps(instance("STOCH         TOY\nENDATA\n"; core = several))
+        @test smps.b == [10.0] && smps.h == [4.0, 3.0, 8.0]            # RHS2 left out
+        @test smps.ranges2[3] == -2.0 && smps.ub1[1] == 8.0               # RNG2 and BND2 too
+        alternative = replace(TOY_CORE, "ROWS\n N  COST\n" => "OBJNAME\n    ALT\nROWS\n N  COST\n N  ALT\n",
+                              "    X1        COST      2.0" => "    X1        ALT       7.0\n    X1        COST      2.0")
+        smps = read_smps(instance("STOCH         TOY\nENDATA\n"; core = alternative))
+        @test smps.objective == "ALT" && smps.c == [7.0, 0.0] && smps.q == zeros(3)
+        sameline = replace(alternative, "OBJNAME\n    ALT\n" => "OBJNAME       ALT\n")
+        @test read_smps(instance("STOCH         TOY\nENDATA\n"; core = sameline)).objective == "ALT"
+        missing = replace(alternative, "OBJNAME\n    ALT\n" => "OBJNAME\n    NONE\n")
+        @test_throws ErrorException read_smps(instance("STOCH         TOY\nENDATA\n"; core = missing))
+        hashed = replace(TOY_CORE, "COLUMNS\n" => "COLUMNS\n# a comment, as CoinMpsIO reads them\n")
+        @test read_smps(instance("STOCH         TOY\nENDATA\n"; core = hashed)).c == [2.0, 3.0]
+    end
+
+    @testset "Random bounds in two stages" begin
+        stoch = """
+            STOCH         TOY
+            SCENARIOS     DISCRETE
+             SC S1        ROOT      0.5            PERIOD2
+             UP BND       Y1        2.0
+             SC S2        ROOT      0.5            PERIOD2
+             FX BND       Y2        4.0
+            ENDATA
+            """
+        smps = read_smps(instance(stoch))
+        @test smps.elements == [(:ub, 1, 0), (:lb, 2, 0), (:ub, 2, 0)]
+        @test smps.names == [("UP", "Y1"), ("LO", "Y2"), ("UP", "Y2")]
+        (; ξ, p) = enumerate_scenarios(smps.law)
+        @test second_stage(smps, ξ[1]).ub == [2.0, Inf, Inf]
+        @test second_stage(smps, ξ[2]).lb == [0.0, 4.0, 0.0] && second_stage(smps, ξ[2]).ub[2] == 4.0
+        model, _, y = extensive_form(smps, ξ, p)
+        @test upper_bound(y[1][1]) == 2.0 && !has_upper_bound(y[2][1])
+        @test lower_bound(y[2][2]) == 4.0 && upper_bound(y[2][2]) == 4.0
+        @test same_problem(smps, round_trip(smps))                      # written in a BLOCKS section
+        @test scenario_set(round_trip(smps; scenarios = (; ξ, p))) == scenario_set(smps)
+        for bad in (" UP BND       X1        5.0\n", " FR BND       Y1\n")   # first stage; no value
+            @test_throws ErrorException read_smps(instance(
+                "STOCH         TOY\nSCENARIOS     DISCRETE\n SC S1        ROOT      1.0            PERIOD2\n" *
+                bad * "ENDATA\n"))
+        end
+        @test_throws ErrorException read_smps(instance(
+            "STOCH         TOY\nINDEP         DISCRETE\n UP BND       Y1        2.0            PERIOD2   1.0\nENDATA\n"))
+    end
+
+    @testset "Random bounds in a tree" begin
+        stoch = """
+            STOCH         TOY
+            SCENARIOS     DISCRETE                REPLACE
+             SC A         ROOT      0.5            PERIOD2
+             UP BND       Y1        1.5
+             SC B         A         0.5            PERIOD3
+             LO BND       Y3        2.0
+            ENDATA
+            """
+        tree = read_smps(instance(stoch; time = THREE))
+        @test tree.elements == [(:ub, 3, 0), (:lb, 5, 0)] && tree.elementperiod == [2, 3]
+        a, b = scenario_data(tree, 1), scenario_data(tree, 2)
+        @test a.ub[3] == 1.5 && a.lb[5] == 0.0                          # B shares A's node in period 2
+        @test b.ub[3] == 1.5 && b.lb[5] == 2.0
+        model, x = extensive_form(tree)
+        @test upper_bound(x[2][1]) == 1.5 && lower_bound(x[3][1]) == 0.0 && lower_bound(x[4][1]) == 2.0
     end
 
     @testset "KandW3R: three periods, nine scenarios" begin
