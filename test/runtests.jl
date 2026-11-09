@@ -340,9 +340,9 @@ end
             stoch = "STOCH         TOY\nSCENARIOS     DISCRETE\n " * scenarios * "ENDATA\n"
             @test_throws ErrorException read_smps(instance(stoch; time = THREE))
         end
-        @test_throws ErrorException read_smps(instance(
+        @test read_smps(instance(       # INDEP in three periods: a law by period
             "STOCH         TOY\nINDEP         DISCRETE\n    RHS       DEM1      1.0            PERIOD2   1.0\nENDATA\n";
-            time = THREE))
+            time = THREE)) isa SMPSStagewise
         @test_throws ErrorException read_smps(instance(
             "STOCH         TOY\nSCENARIOS     DISCRETE                ADD\n SC A         ROOT      1.0            PERIOD2\nENDATA\n";
             time = THREE))
@@ -417,6 +417,112 @@ end
         @test b.ub[3] == 1.5 && b.lb[5] == 2.0
         model, x = extensive_form(tree)
         @test upper_bound(x[2][1]) == 1.5 && lower_bound(x[3][1]) == 0.0 && lower_bound(x[4][1]) == 2.0
+    end
+
+    @testset "A law by period: INDEP in three periods" begin
+        stoch = """
+            STOCH         TOY
+            INDEP         DISCRETE
+                RHS       DEM1      4.0            PERIOD2   0.5
+                RHS       DEM1      6.0            PERIOD2   0.5
+                RHS       DEM2      2.0            PERIOD2   0.5
+                RHS       DEM2      3.0            PERIOD2   0.5
+                RHS       BAL       8.0            PERIOD3   0.25
+                RHS       BAL       9.0            PERIOD3   0.75
+            ENDATA
+            """
+        s = read_smps(instance(stoch; time = THREE))
+        @test s isa SMPSStagewise && support_size(s) == 8
+        @test s.elementperiod == [2, 2, 3] && s.revealperiod == [2, 2, 3]
+        @test s.lawelements == [Int[], [1, 2], [3]] && support_size(s.laws[2]) == 4
+        tree = scenario_tree(s)
+        @test [count(==(t), tree.nodeperiod) for t in 1:3] == [1, 4, 8]
+        @test all(tree.probability[tree.nodeperiod .== 2] .≈ 0.25)
+        @test sort(tree.scenarioprobability) ≈ sort(repeat([0.0625, 0.1875], 4))
+        @test sum(tree.scenarioprobability) ≈ 1 && length.(bundles(tree, 2)) == fill(2, 4)
+        # each scenario's data: a demand pair of period 2, a balance of period 3
+        data = [scenario_data(tree, k).rhs for k in eachindex(tree.scenarios)]
+        @test Set((d[2], d[3], d[4]) for d in data) ==
+              Set((a, b, c) for a in (4.0, 6.0), b in (2.0, 3.0), c in (8.0, 9.0))
+        @test_throws ErrorException scenario_tree(s; limit = 7)
+        # the data of a draw
+        ξ = rand(MersenneTwister(1), s)
+        @test length(ξ) == 3 && scenario_data(s, ξ).rhs[2:4] == ξ
+        # a balance of period 3 known in period 2: the same for the children of a node
+        early = read_smps(instance("STOCH         TOY\nINDEP         DISCRETE\n" *
+                                   "    RHS       BAL       8.0            PERIOD2   0.5\n" *
+                                   "    RHS       BAL       9.0            PERIOD2   0.5\nENDATA\n"; time = THREE))
+        @test early.elementperiod == [3] && early.revealperiod == [2]
+        t = scenario_tree(early)
+        @test t.nodeperiod == [1, 2, 2, 3, 3] && sort([scenario_data(t, k).rhs[4] for k in 1:2]) == [8.0, 9.0]
+        # refused: revealed after its period, in the first period, in an unknown one; mixed with SCENARIOS
+        for line in ("    RHS       DEM1      4.0            PERIOD3   1.0\n",
+                     "    RHS       DEM1      4.0            PERIOD1   1.0\n",
+                     "    RHS       DEM1      4.0            PERIOD7   1.0\n")
+            @test_throws ErrorException read_smps(instance("STOCH         TOY\nINDEP         DISCRETE\n" *
+                                                           line * "ENDATA\n"; time = THREE))
+        end
+        @test_throws ErrorException read_smps(instance(
+            "STOCH         TOY\nINDEP         DISCRETE\n    RHS       DEM1      4.0            PERIOD2   1.0\n" *
+            "SCENARIOS     DISCRETE\n SC A         ROOT      1.0            PERIOD2\nENDATA\n"; time = THREE))
+    end
+
+    @testset "A law by period: BLOCKS, sampled trees, continuous laws" begin
+        stoch = """
+            STOCH         TOY
+            BLOCKS        DISCRETE
+             BL B1        PERIOD2   0.5
+                RHS       DEM1      5.0            DEM2      4.0
+             BL B1        PERIOD2   0.5
+                RHS       DEM1      7.0
+             BL B2        PERIOD3   0.4
+                RHS       BAL       9.0
+             BL B2        PERIOD3   0.6
+                RHS       BAL       7.0
+            ENDATA
+            """
+        s = read_smps(instance(stoch; time = THREE))
+        tree = scenario_tree(s)
+        @test length(tree.scenarios) == 4
+        # the second realization of B1 keeps the first's DEM2
+        @test Set((d.rhs[2], d.rhs[3]) for d in scenario_data.(Ref(tree), 1:4)) == Set([(5.0, 4.0), (7.0, 4.0)])
+        # sampled: each node draws its own children, or all share the draws of their period
+        sampled = sample_tree(MersenneTwister(2), s, [3, 2])
+        @test [count(==(t), sampled.nodeperiod) for t in 1:3] == [1, 3, 6]
+        @test sampled.probability[end] ≈ 1 / 6 && sum(sampled.scenarioprobability) ≈ 1
+        @test sample_tree(MersenneTwister(2), s, 2).values == sample_tree(MersenneTwister(2), s, 2).values
+        common = sample_tree(MersenneTwister(3), s, [2, 5]; common = true)
+        leaves(n) = [common.values[m] for m in eachindex(common.parent) if common.parent[m] == n]
+        @test leaves(2) == leaves(3)                                     # the same draws in period 3
+        # a period without random data: one child per node
+        only2 = read_smps(instance("STOCH         TOY\nINDEP         DISCRETE\n" *
+                                   "    RHS       DEM1      4.0            PERIOD2   0.5\n" *
+                                   "    RHS       DEM1      6.0            PERIOD2   0.5\nENDATA\n"; time = THREE))
+        @test [count(==(t), sample_tree(only2, [2, 5]).nodeperiod) for t in 1:3] == [1, 2, 2]
+        # a continuous law: sampled, not enumerated
+        normal = read_smps(instance("STOCH         TOY\nINDEP         NORMAL\n" *
+                                    "    RHS       DEM1      5.0            PERIOD2   1.0\nENDATA\n"; time = THREE))
+        @test_throws ErrorException scenario_tree(normal)
+        @test length(sample_tree(MersenneTwister(4), normal, 10).scenarios) == 10
+    end
+
+    @testset "POSTS in three periods: pltexpA3_6 (BLOCKS), fxm3_6 (INDEP)" begin
+        plt = read_smps(joinpath(DATA, "pltexpa-3.cor"), joinpath(DATA, "pltexpa-3.tim"),
+                        joinpath(DATA, "pltexpa-3-6.sto"))
+        model, _ = extensive_form(scenario_tree(plt); optimizer = HiGHS.Optimizer)
+        set_silent(model)
+        optimize!(model)
+        @test isapprox(objective_value(model), -13.969368; atol = 1e-6)   # Post_Results
+        fxm = @test_logs (:warn, r"kept as written") (:warn, r"kept as written") read_smps(
+            joinpath(DATA, "fxm.cor"), joinpath(DATA, "fxm-3.tim"), joinpath(DATA, "fxm-3-6.sto");
+            probability_sums = :as_written)
+        tree = scenario_tree(fxm)
+        @test length(tree.scenarios) == 36 && fxm.elementperiod == [2, 3]
+        model, _ = extensive_form(tree; optimizer = HiGHS.Optimizer)
+        set_silent(model)
+        optimize!(model)
+        # Post_Results gives 18615.932: 0.104 less, as for fxm2.16, read in two stages
+        @test isapprox(objective_value(model), 18616.036; atol = 1e-3)
     end
 
     @testset "KandW3R: three periods, nine scenarios" begin

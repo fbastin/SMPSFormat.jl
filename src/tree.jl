@@ -77,22 +77,11 @@ values at the node of `s` in that period: the named tuple `(c = ..., A = ..., rh
 ub = ...)`, copies of those of `tree`. The senses and ranges are those of `tree`.
 """
 function scenario_data(tree::SMPSTree, s::Integer)
-    c, A, rhs, lb, ub = copy(tree.c), copy(tree.A), copy(tree.rhs), copy(tree.lb), copy(tree.ub)
+    d = (c = copy(tree.c), A = copy(tree.A), rhs = copy(tree.rhs), lb = copy(tree.lb), ub = copy(tree.ub))
     for n in tree.scenarios[s], (e, v) in tree.values[n]
-        kind, i, j = tree.elements[e]
-        if kind === :rhs
-            rhs[i] = v
-        elseif kind === :c
-            c[i] = v
-        elseif kind === :A
-            A[i, j] = v
-        elseif kind === :lb
-            lb[i] = v
-        else
-            ub[i] = v
-        end
+        set_element!(d, tree.elements[e]..., v)
     end
-    return (c = c, A = A, rhs = rhs, lb = lb, ub = ub)
+    return d
 end
 
 """

@@ -27,10 +27,15 @@ model, x, y = extensive_form(smps, ξ, p; optimizer = HiGHS.Optimizer)
 write_smps("copy", smps)                      # the law
 write_smps("sampled", smps; scenarios = (ξ = ξs, p = fill(1 / 1000, 1000)))
 
-tree = read_smps("KandW3R")                   # three periods: an SMPSTree
+tree = read_smps("KandW3R")                   # three periods, SCENARIOS: an SMPSTree
 scenario_data(tree, 1)                        # (c, A, rhs) of the first scenario
 bundles(tree, 2)                              # the scenarios sharing a node in period 2
 model, x = extensive_form(tree; optimizer = HiGHS.Optimizer)   # x[n]: the variables of node n
+
+s = read_smps("pltexpa-3.cor", "pltexpa-3.tim", "pltexpa-3-6.sto")  # BLOCKS: an SMPSStagewise
+support_size(s)                               # 36 scenarios
+tree = scenario_tree(s)                       # the whole tree, when it is small enough
+tree = sample_tree(rng, s, [10, 5])           # or a sampled one: 10 children, then 5
 ```
 
 ## What it reads
@@ -42,17 +47,21 @@ model, x = extensive_form(tree; optimizer = HiGHS.Optimizer)   # x[n]: the varia
   DISCRETE`, two-stage `SCENARIOS` trees, with the modifiers `REPLACE`, `ADD` and `MULTIPLY`. The
   random data may be the right-hand sides, the matrix coefficients, the costs and, in `BLOCKS`
   and `SCENARIOS` sections, the bounds (`UP`, `LO`, `FX`) of the second stage.
-- **Stoch file in more periods**: `SCENARIOS DISCRETE` trees, `REPLACE`. A scenario branches from
-  `ROOT` or from a scenario given before it, in the period its `SC` line gives; it shares its
-  parent's nodes before, and changes only data of that period or later: right-hand sides,
-  matrix coefficients, costs, bounds.
+- **Stoch file in more periods, `INDEP` and `BLOCKS`**: a law by period, as in two periods, each
+  element or block revealed in the period its line gives, at most that of its data; the laws of
+  the periods are independent.
+- **Stoch file in more periods, `SCENARIOS`**: `SCENARIOS DISCRETE` trees, `REPLACE`. A scenario
+  branches from `ROOT` or from a scenario given before it, in the period its `SC` line gives; it
+  shares its parent's nodes before, and changes only data of that period or later: right-hand
+  sides, matrix coefficients, costs, bounds.
 - **The files as the literature writes them**: comment lines anywhere, headers indented by
   mistake, problem names that differ between the three files (a warning), probabilities rounded
   to the digits written (normalized; see `probability_sums`), time and stoch files whose first
   section is `NAME` (as some of SMI's), comment lines with a hash in the first column (as
   CoinMpsIO reads them).
 
-Not yet: `INDEP` and `BLOCKS` in more than two periods, writing a multistage instance, `NODES`,
+Not yet: `SCENARIOS` mixed with `INDEP` or `BLOCKS` in more than two periods, writing a
+multistage instance, `NODES`,
 `DISTRIB`, `MVNORMAL`, `LINTRAN`, chance constraints, simple recourse, random ranges, random
 bounds in `INDEP` sections or of the types `FR`, `MI`, `PL`, `BV`, `LI`, `UI`, network core
 files. They are refused with an error.
@@ -76,6 +85,10 @@ files. They are refused with an error.
 - A tree has one node in the first period. A scenario branching from `ROOT` in the first period,
   as in the SGPF files of POSTS, must be the only child of `ROOT`; it then sets the data of the
   first period. A node's probability is the sum of those of its scenarios.
+- A tree built from a law by period (`scenario_tree`, `sample_tree`) gives each node of period
+  `t − 1` its children in period `t`; a period without random data gives one child. Sampled, each
+  child has the probability `1 / n` of its parent's; the draws are independent from node to node,
+  or common to the nodes of a period (`common = true`).
 
 The reader was checked on SPLIB's 95 instances of Zverovich's thesis (2011, Table 4.3), against
 the thesis's optimal values, and on the eight multistage instances of Zehtabian and Bastin
@@ -83,6 +96,10 @@ the thesis's optimal values, and on the eight multistage instances of Zehtabian 
 KW3R, KW3Rb, app0110R, SGPF3Y3, Asset Mgt, SGPF5Y4, wat10I16, wat10C32), against the optimal values
 of the report; app0110R's, whose probabilities sum up to 0.999, with `probability_sums =
 :as_written`. SMI's original stoch file of wat10I16, with its random bounds, gives the same value.
+In more periods with `INDEP` and `BLOCKS`, it was checked against the optimal values of POSTS
+(Post_Results): pltexpA3_6, pltexpA3_16 and pltexpA4_6 are reproduced; fxm3.6, fxm3.16 and
+fxm4.6, with their probabilities as written, all exceed them by the same 0.104, as the two-stage
+fxm2.16 does, which points to a difference in the data, not in the tree.
 
 ## Licence
 

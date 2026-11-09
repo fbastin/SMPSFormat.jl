@@ -9,8 +9,10 @@ file, the law of its random data.
 - [`read_smps`](@ref) reads the three files of a two-stage instance into an [`SMPSProblem`](@ref):
   the data of each stage as matrices and vectors, the random elements, and their law, an
   [`SMPSLaw`](@ref). An instance in more periods is read into an [`SMPSTree`](@ref), its scenario
-  tree; [`scenario_data`](@ref) gives the data of a scenario, [`bundles`](@ref) the scenarios that
-  share a node.
+  tree, or, when its random data are given period by period (`INDEP`, `BLOCKS`), into an
+  [`SMPSStagewise`](@ref), from which [`scenario_tree`](@ref) builds the tree and
+  [`sample_tree`](@ref) samples one; [`scenario_data`](@ref) gives the data of a scenario,
+  [`bundles`](@ref) the scenarios that share a node.
 - The law can be enumerated, [`enumerate_scenarios`](@ref), when it is discrete, and sampled,
   `rand(rng, law, n)`; [`second_stage`](@ref) gives the data of the second stage in a scenario.
 - [`write_smps`](@ref) writes a problem back, with its law or with given scenarios.
@@ -30,13 +32,15 @@ using Printf
 using Random
 using SparseArrays
 
-export SMPSProblem, SMPSLaw, SMPSTree, read_smps, write_smps, support_size, enumerate_scenarios,
-       second_stage, scenario_data, bundles, row_bounds, extensive_form
+export SMPSProblem, SMPSLaw, SMPSTree, SMPSStagewise, read_smps, write_smps, support_size,
+       enumerate_scenarios, second_stage, scenario_data, bundles, scenario_tree, sample_tree,
+       row_bounds, extensive_form
 
 include("lines.jl")
 include("law.jl")
 include("problem.jl")
 include("tree.jl")
+include("stagewise.jl")
 include("read.jl")
 include("write.jl")
 

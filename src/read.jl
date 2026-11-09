@@ -4,9 +4,11 @@
     read_smps(core, time, stoch; sense = nothing, probability_sums = :rounding)
     read_smps(prefix; sense = nothing, probability_sums = :rounding)
 
-Read an instance in the SMPS format: an instance in two periods into an [`SMPSProblem`](@ref),
-one in more periods into an [`SMPSTree`](@ref), its scenario tree. `read_smps(prefix)` looks for
-`prefix` followed by `.cor` or `.core`, `.tim` or `.time`, and `.sto` or `.stoch`.
+Read an instance in the SMPS format: an instance in two periods into an [`SMPSProblem`](@ref);
+one in more periods into an [`SMPSTree`](@ref), its scenario tree, when its stoch file gives the
+tree (`SCENARIOS`), or into an [`SMPSStagewise`](@ref), a law by period, when it gives `INDEP` and
+`BLOCKS` sections. `read_smps(prefix)` looks for `prefix` followed by `.cor` or `.core`, `.tim` or
+`.time`, and `.sto` or `.stoch`.
 
 **The core file** is in free MPS format: `NAME`, `OBJSENSE`, `OBJNAME`, `ROWS`, `COLUMNS` (with
 integer markers), `RHS`, `RANGES` and `BOUNDS` (`UP`, `LO`, `FX`, `FR`, `MI`, `PL`, `BV`, `LI`,
@@ -35,9 +37,16 @@ right-hand sides, matrix coefficients and costs of the second stage:
 - The modifiers `REPLACE` (the default), `ADD` and `MULTIPLY` of `INDEP` and `BLOCKS` sections:
   the value given replaces the core value, is added to it, or multiplies it.
 
-**The stoch file of an instance in more periods** gives its scenario tree, in a `SCENARIOS
-DISCRETE` (or `SCEN`) section, `REPLACE`: each scenario branches from `ROOT`, or from a scenario
-given before it, in the period its `SC` line gives. Before that period it shares the nodes of its
+**The stoch file of an instance in more periods, with `INDEP` and `BLOCKS` sections**, gives the
+law of each period, as in two periods (distributions, modifiers, random bounds), each element or
+block in the period its line gives: the period it is revealed in, the second at least, and at most
+the period of the data it sets (a demand of the third period may be known in the second). An
+`INDEP` line without a period is revealed in the period of its data. The laws of the periods are
+independent of each other.
+
+**The stoch file of an instance in more periods, with a `SCENARIOS` section**, gives its scenario
+tree, in a `SCENARIOS DISCRETE` (or `SCEN`) section, `REPLACE`: each scenario branches from
+`ROOT`, or from a scenario given before it, in the period its `SC` line gives. Before that period it shares the nodes of its
 parent; from that period on it has nodes of its own, and inherits the values it does not list
 from its parent (the core file for `ROOT`). It may change only data of its branching period or
 later: right-hand sides, matrix coefficients, costs and bounds (`UP`, `LO`, `FX`, written as in
@@ -47,7 +56,7 @@ be the only child of `ROOT`, and then sets the data of the first period. Without
 the tree is a single one, the core problem.
 
 Not supported, and refused: `NODES`, `DISTRIB`, `MVNORMAL`, `LINTRAN` and user-defined
-distributions, `INDEP` and `BLOCKS` in more than two periods, chance constraints (`CHANCE`, `ICC`),
+distributions, `SCENARIOS` with `INDEP` or `BLOCKS` in more than two periods, chance constraints (`CHANCE`, `ICC`),
 `SIMPLE` recourse, random ranges, random bounds in `INDEP` sections or of types other than `UP`,
 `LO` and `FX`, random first-stage data in two periods, network core files.
 
@@ -88,14 +97,22 @@ function read_smps(core::AbstractString, time::AbstractString, stoch::AbstractSt
     sense = something(sense, cor.sense)
     sign = sense === :max ? -1.0 : 1.0
     tim = read_time(time, cor)
-    twostage = length(tim.periods) == 2
-    sto = twostage ? read_stoch(stoch, cor, tim, probability_sums) :
-          read_tree(stoch, cor, tim, probability_sums)
+    # two periods; more, with a law by period (INDEP, BLOCKS); more, with a scenario tree
+    kind = length(tim.periods) == 2 ? :twostage :
+           any(in(("INDEP", "BLOCKS")), stoch_sections(stoch)) ? :stagewise : :tree
+    sto = kind === :tree ? read_tree(stoch, cor, tim, probability_sums) :
+          read_stoch(stoch, cor, tim, probability_sums)
     names = (cor.name, tim.name, sto.name)
     allequal(names) || @warn "The SMPS files name different problems: $(names[1]) (core), " *
                              "$(names[2]) (time), $(names[3]) (stoch)"
-    return twostage ? assemble(cor, tim, sto, sign, sense) : assemble_tree(cor, tim, sto, sign, sense)
+    kind === :twostage && return assemble(cor, tim, sto, sign, sense)
+    kind === :stagewise && return assemble_stagewise(cor, tim, sto, sign, sense)
+    return assemble_tree(cor, tim, sto, sign, sense)
 end
+
+"""The sections of a stoch file, by their headers."""
+stoch_sections(path) = Set(replace(uppercase(f[1]), r"^SCEN$" => "SCENARIOS")
+                           for (header, f) in smps_lines(path) if header)
 
 # ---- the core file
 
@@ -301,32 +318,39 @@ end
 
 function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     (; rowindex, colindex, entries, objective, rhsnames, rangenames, boundnames) = cor
-    (; periods, stage2col, stage2row) = tim
+    (; periods, colstage, rowstage) = tim
+    multistage = length(periods) > 2
+    periodindex = Dict(p => t for (t, p) in enumerate(periods))
     # the random elements: (col, row) names => index; each in one block or distribution only
     elementindex = Dict{Tuple{String,String},Int}()
     elementnames = Tuple{String,String}[]
+    elementperiod = Int[]                            # the period of the data of each element
     owner = Dict{Int,String}()                       # element => the block that sets it
     function element(col, row, block)
         e = get!(elementindex, (col, row)) do
-            if haskey(colindex, col)
+            t = if haskey(colindex, col)
                 j = colindex[col]
                 if row == objective
-                    j in stage2col || error("$path: random first-stage cost of $col")
+                    colstage[j] >= 2 || error("$path: random first-stage cost of $col")
+                    colstage[j]
                 else
                     haskey(rowindex, row) || error("$path: unknown row $row")
-                    rowindex[row] in stage2row || error("$path: random entry in the first-stage row $row")
+                    rowstage[rowindex[row]] >= 2 || error("$path: random entry in the first-stage row $row")
                     haskey(entries, (rowindex[row], j)) ||
                         error("$path: random entry ($row, $col) absent from the core file")
+                    rowstage[rowindex[row]]
                 end
             else
                 col in rangenames && error("$path: random range of $row: not supported")
                 col in boundnames && error("$path: random bound of $row: not supported")
                 row == objective && error("$path: random constant of the objective: not supported")
                 haskey(rowindex, row) || error("$path: unknown row $row")
-                rowindex[row] in stage2row ||
+                rowstage[rowindex[row]] >= 2 ||
                     error("$path: random right-hand side of the first-stage row $row")
+                rowstage[rowindex[row]]
             end
             push!(elementnames, (col, row))
+            push!(elementperiod, t)
             push!(elementbound, :none)
             return length(elementnames)
         end
@@ -340,8 +364,9 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     function bound_element(kind, col, block)
         e = get!(boundindex, (kind, col)) do
             haskey(colindex, col) || error("$path: unknown column $col in a random bound")
-            colindex[col] in stage2col || error("$path: random bound of the first-stage column $col")
+            colstage[colindex[col]] >= 2 || error("$path: random bound of the first-stage column $col")
             push!(elementnames, (kind === :lb ? "LO" : "UP", col))
+            push!(elementperiod, colstage[colindex[col]])
             push!(elementbound, kind)
             return length(elementnames)
         end
@@ -349,17 +374,34 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             error("$path: the bound of $col is random in two blocks, $(owner[e]) and $block")
         return e
     end
+    # the period a block or an INDEP element is revealed in: the one its line gives in more than
+    # two periods, the second in two (whatever the line gives, as files have it); at least the
+    # second, at most the period of the data it sets
+    function revealed(label, e)
+        multistage || return 2
+        t = label === nothing ? elementperiod[e] : get(periodindex, strip(label, '\''), 0)
+        t == 0 && error("$path: unknown period $label")
+        t >= 2 || error("$path: random data revealed in the first period, $(periods[1])")
+        return t
+    end
+    function check_revealed(e, t)
+        elementperiod[e] >= t ||
+            error("$path: $(join(elementnames[e], ' ')), of period $(periods[elementperiod[e]]), " *
+                  "revealed later, in period $(periods[t])")
+    end
     blocks = String[]                                # the names of the discrete blocks
+    blockperiod = Int[]                              # the period each block is revealed in
     probabilities, halfunits = Vector{Float64}[], Vector{Float64}[]
     realizations = Vector{Dict{Int,Float64}}[]       # per block, per outcome: element => value as given
     modifiers = Symbol[]                             # per block
     blockindex = Dict{String,Int}()
-    continuous = Tuple{Int,String,Float64,Float64,Symbol}[] # element, distribution, parameters, modifier
+    # element, distribution, parameters, modifier, period revealed
+    continuous = Tuple{Int,String,Float64,Float64,Symbol,Int}[]
     scenarioindex = Dict{String,Int}()               # a scenario => its outcome
     name, section, kind, modifier, current = "", "", "DISCRETE", :replace, 0
-    newblock(label) = (push!(blocks, label); push!(probabilities, Float64[]); push!(halfunits, Float64[]);
-                       push!(realizations, Dict{Int,Float64}[]); push!(modifiers, modifier);
-                       blockindex[label] = length(blocks))
+    newblock(label, t) = (push!(blocks, label); push!(blockperiod, t); push!(probabilities, Float64[]);
+                          push!(halfunits, Float64[]); push!(realizations, Dict{Int,Float64}[]);
+                          push!(modifiers, modifier); blockindex[label] = length(blocks))
     for (header, f) in smps_lines(path)
         if header
             section = uppercase(f[1])
@@ -378,6 +420,9 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
                 modifier = Symbol(lowercase(word))
                 section == "SCENARIOS" && modifier !== :replace &&
                     error("$path: SCENARIOS $word is not supported: scenarios replace the values")
+                section == "SCENARIOS" && multistage &&
+                    error("$path: SCENARIOS with INDEP or BLOCKS sections in more than two periods: " *
+                          "not supported")
             elseif section != "ENDATA"
                 error("$path: section $section is not supported")
             end
@@ -391,29 +436,36 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             if kind == "DISCRETE"
                 label = "INDEP ($col, $row)"
                 e = element(col, row, label)
-                haskey(blockindex, label) || newblock(label)
+                t = revealed(length(f) == 5 ? f[4] : nothing, e)
+                check_revealed(e, t)
+                haskey(blockindex, label) || newblock(label, t)
                 k = blockindex[label]
+                blockperiod[k] == t || error("$path: ($col, $row) revealed in two periods")
                 push!(probabilities[k], number(f[end]))
                 push!(halfunits[k], half_unit(f[end]))
                 push!(realizations[k], Dict(e => number(f[3])))
             else
                 e = element(col, row, "INDEP ($col, $row)")
                 any(c -> c[1] == e, continuous) && error("$path: two distributions for ($col, $row)")
-                push!(continuous, (e, kind, number(f[3]), number(f[end]), modifier))
+                t = revealed(length(f) == 5 ? f[4] : nothing, e)
+                check_revealed(e, t)
+                push!(continuous, (e, kind, number(f[3]), number(f[end]), modifier, t))
             end
         elseif section in ("BLOCKS", "SCENARIOS") && f[1] in ("BL", "SC")
             if f[1] == "BL"
                 length(f) >= 4 || error("$path: incomplete BL line $(join(f, ' '))")
                 label = "BLOCKS " * f[2]
                 isnew = !haskey(blockindex, label)
-                isnew && newblock(label)
+                t = revealed(f[3], 0)
+                isnew && newblock(label, t)
                 k = blockindex[label]
+                blockperiod[k] == t || error("$path: block $(f[2]) revealed in two periods")
                 # a realization lists what changes from the block's first one
                 push!(realizations[k], isnew ? Dict{Int,Float64}() : copy(realizations[k][1]))
                 prob = f[4]
             else
                 length(f) >= 4 || error("$path: incomplete SC line $(join(f, ' '))")
-                haskey(blockindex, "SCENARIOS") || newblock("SCENARIOS")
+                haskey(blockindex, "SCENARIOS") || newblock("SCENARIOS", 2)
                 k = blockindex["SCENARIOS"]
                 parent = strip(f[3], '\'')
                 period = length(f) >= 5 ? strip(f[5], '\'') : periods[2]
@@ -435,15 +487,18 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
         elseif section in ("BLOCKS", "SCENARIOS")
             current == 0 && error("$path: an entry before the first BL or SC line")
             if is_bound_line(f, boundnames)
-                kinds, col, value = bound_line(path, f)
-                for kind in kinds
-                    realizations[current][end][bound_element(kind, col, blocks[current])] = value
+                bounds, col, value = bound_line(path, f)
+                for bound in bounds
+                    e = bound_element(bound, col, blocks[current])
+                    check_revealed(e, blockperiod[current])
+                    realizations[current][end][e] = value
                 end
                 continue
             end
             length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
             for k in 2:2:(length(f) - 1)
                 e = element(f[1], f[k], blocks[current])
+                check_revealed(e, blockperiod[current])
                 realizations[current][end][e] = number(f[k+1])
             end
         end
@@ -452,8 +507,8 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     for (k, p) in enumerate(probabilities)
         probabilities[k] = checked_probabilities(path, blocks[k], p, halfunits[k], probability_sums)
     end
-    return (; path, name, elementnames, elementbound, blocks, probabilities, realizations, modifiers,
-            continuous)
+    return (; path, name, elementnames, elementperiod, elementbound, blocks, blockperiod,
+            probabilities, realizations, modifiers, continuous)
 end
 
 """Whether the fields `f` of a stoch file are a random bound, as the core file's BOUNDS section
@@ -543,7 +598,7 @@ function assemble(cor, tim, sto, sign::Float64, sense::Symbol)
         end
     end
     continuous = [(e, distribution(sto.path, kind, p1, p2), modifier, signs[e])
-                  for (e, kind, p1, p2, modifier) in sto.continuous]
+                  for (e, kind, p1, p2, modifier, _) in sto.continuous]
     law = SMPSLaw(signs .* core .+ 0.0, sto.probabilities, outcomes, continuous)
     return SMPSProblem(cor.name, sense, objective, c[cols1], A, senses[rows1], b[rows1], rg[rows1],
                        lb[cols1], ub[cols1], [j in integer for j in cols1],
@@ -723,8 +778,10 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
             nodeprobability, nodevalues, paths, names, probabilities)
 end
 
-function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
-    (; rows, senses, columns, rowindex, colindex, entries, integer, objective) = cor
+"""The matrix of the core file `cor`, all rows and columns in its order; an error if a row
+involves a variable of a later period."""
+function core_matrix(cor, tim)
+    (; rows, columns, entries) = cor
     (; periods, colstage, rowstage) = tim
     I, J, V = Int[], Int[], Float64[]
     for ((i, j), v) in entries
@@ -733,14 +790,27 @@ function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
                   "$(rows[i]) of period $(periods[rowstage[i]])")
         push!(I, i); push!(J, j); push!(V, v)
     end
-    A = sparse(I, J, V, length(rows), length(columns))  # the zeros written kept as entries
-    (; c, lb, ub, b, rg) = core_vectors(cor, sign)
-    elements = map(tr.elementnames, tr.elementbound) do (col, row), bound
+    return sparse(I, J, V, length(rows), length(columns))   # the zeros written kept as entries
+end
+
+"""The random elements named `elementnames` in a multistage problem, as `(kind, i, j)` with the
+indices of the core file."""
+function multistage_elements(cor, elementnames, elementbound)
+    (; rowindex, colindex, objective) = cor
+    return map(elementnames, elementbound) do (col, row), bound
         bound === :none || return (bound, colindex[row], 0)    # names: type, column
         haskey(colindex, col) || return (:rhs, rowindex[row], 0)
         row == objective && return (:c, colindex[col], 0)
         return (:A, rowindex[row], colindex[col])
     end
+end
+
+function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
+    (; rows, senses, columns, integer, objective) = cor
+    (; periods, colstage, rowstage) = tim
+    A = core_matrix(cor, tim)
+    (; c, lb, ub, b, rg) = core_vectors(cor, sign)
+    elements = multistage_elements(cor, tr.elementnames, tr.elementbound)
     signs = [kind === :c ? sign : 1.0 for (kind, _, _) in elements]
     values = [[e => signs[e] * v + 0.0 for (e, v) in node] for node in tr.nodevalues]
     return SMPSTree(cor.name, sense, objective, periods, columns, rows, colstage, rowstage, c, A,
@@ -748,4 +818,45 @@ function assemble_tree(cor, tim, tr, sign::Float64, sense::Symbol)
                     sign * cor.constant + 0.0, elements, tr.elementnames, tr.elementperiod,
                     tr.nodeperiod, tr.parentnode, tr.nodeprobability, values, tr.paths, tr.names,
                     tr.probabilities)
+end
+
+function assemble_stagewise(cor, tim, sto, sign::Float64, sense::Symbol)
+    (; rows, senses, columns, entries, cost, integer, objective) = cor
+    (; periods, colstage, rowstage) = tim
+    A = core_matrix(cor, tim)
+    (; c, lb, ub, b, rg) = core_vectors(cor, sign)
+    elements = multistage_elements(cor, sto.elementnames, sto.elementbound)
+    signs = [kind === :c ? sign : 1.0 for (kind, _, _) in elements]
+    # the values of the elements in the core file, unsigned
+    core = map(elements) do (kind, i, j)
+        kind === :rhs ? b[i] : kind === :c ? get(cost, i, 0.0) : kind === :A ? entries[(i, j)] :
+        kind === :lb ? lb[i] : ub[i]
+    end
+    reveal = zeros(Int, length(elements))
+    for (k, realizations) in enumerate(sto.realizations), realization in realizations, (e, _) in realization
+        reveal[e] = sto.blockperiod[k]
+    end
+    foreach(((e, _, _, _, _, t),) -> reveal[e] = t, sto.continuous)
+    # the law of each period: its blocks and continuous elements, on its own elements
+    laws, lawelements = SMPSLaw[], Vector{Int}[]
+    for t in eachindex(periods)
+        blocks = findall(==(t), sto.blockperiod)
+        mine = sort!(findall(==(t), reveal))
+        position = Dict(e => k for (k, e) in enumerate(mine))
+        outcomes = map(blocks) do k
+            map(sto.realizations[k]) do realization
+                sort!([position[e] => signs[e] * modified(sto.modifiers[k], core[e], v) + 0.0
+                       for (e, v) in realization])
+            end
+        end
+        continuous = [(position[e], distribution(sto.path, kind, p1, p2), modifier, signs[e])
+                      for (e, kind, p1, p2, modifier, s) in sto.continuous if s == t]
+        push!(laws, SMPSLaw([signs[e] * core[e] + 0.0 for e in mine], sto.probabilities[blocks],
+                            outcomes, continuous))
+        push!(lawelements, mine)
+    end
+    return SMPSStagewise(cor.name, sense, objective, periods, columns, rows, colstage, rowstage, c, A,
+                         senses, b, rg, lb, ub, [j in integer for j in eachindex(columns)],
+                         sign * cor.constant + 0.0, elements, sto.elementnames, sto.elementperiod,
+                         reveal, signs .* core .+ 0.0, laws, lawelements)
 end
