@@ -94,6 +94,44 @@ function round_trip(smps; kwargs...)
     return read_smps(prefix)
 end
 
+"""Whether the trees `a` and `b` are the same: the same nodes, and in each scenario the same data,
+the columns and rows matched by name (the core files may order them differently)."""
+function same_tree(a::SMPSTree, b::SMPSTree)
+    a.nodeperiod == b.nodeperiod && a.parent == b.parent && a.scenarios == b.scenarios || return false
+    a.probability ≈ b.probability && a.sense == b.sense && a.periods == b.periods || return false
+    Set(a.columns) == Set(b.columns) && Set(a.rows) == Set(b.rows) || return false
+    J = [findfirst(==(c), b.columns) for c in a.columns]
+    I = [findfirst(==(r), b.rows) for r in a.rows]
+    a.colperiod == b.colperiod[J] && a.rowperiod == b.rowperiod[I] || return false
+    return all(eachindex(a.scenarios)) do s
+        x, y = scenario_data(a, s), scenario_data(b, s)
+        x.c == y.c[J] && x.rhs == y.rhs[I] && x.lb == y.lb[J] && x.ub == y.ub[J] && x.A == y.A[I, J]
+    end
+end
+
+function tree_round_trip(tree; kwargs...)
+    prefix = joinpath(mktempdir(), "written")
+    write_smps(prefix, tree)
+    return read_smps(prefix; kwargs...)
+end
+
+"""The scenarios of a law by period: the data of each scenario of its tree, by name, and its
+probability."""
+function stagewise_scenarios(s)
+    tree = scenario_tree(s)
+    J, I = sortperm(tree.columns), sortperm(tree.rows)
+    return Set(begin
+                   d = scenario_data(tree, k)
+                   (d.c[J], d.rhs[I], d.lb[J], d.ub[J], Matrix(d.A[I, J]), round(p; digits = 12))
+               end for (k, p) in enumerate(tree.scenarioprobability))
+end
+
+function stagewise_round_trip(s; kwargs...)
+    prefix = joinpath(mktempdir(), "written")
+    write_smps(prefix, s)
+    return read_smps(prefix; kwargs...)
+end
+
 @testset "SMPSFormat" begin
     @testset "The core file" begin
         smps = read_smps(instance("STOCH         TOY\nINDEP         DISCRETE\n" *
@@ -454,7 +492,7 @@ end
                                    "    RHS       BAL       9.0            PERIOD2   0.5\nENDATA\n"; time = THREE))
         @test early.elementperiod == [3] && early.revealperiod == [2]
         t = scenario_tree(early)
-        @test t.nodeperiod == [1, 2, 2, 3, 3] && sort([scenario_data(t, k).rhs[4] for k in 1:2]) == [8.0, 9.0]
+        @test t.nodeperiod == [1, 2, 3, 2, 3] && sort([scenario_data(t, k).rhs[4] for k in 1:2]) == [8.0, 9.0]
         # refused: revealed after its period, in the first period, in an unknown one; mixed with SCENARIOS
         for line in ("    RHS       DEM1      4.0            PERIOD3   1.0\n",
                      "    RHS       DEM1      4.0            PERIOD1   1.0\n",
@@ -493,7 +531,8 @@ end
         @test sample_tree(MersenneTwister(2), s, 2).values == sample_tree(MersenneTwister(2), s, 2).values
         common = sample_tree(MersenneTwister(3), s, [2, 5]; common = true)
         leaves(n) = [common.values[m] for m in eachindex(common.parent) if common.parent[m] == n]
-        @test leaves(2) == leaves(3)                                     # the same draws in period 3
+        a, b = findall(==(2), common.nodeperiod)
+        @test leaves(a) == leaves(b)                                     # the same draws in period 3
         # a period without random data: one child per node
         only2 = read_smps(instance("STOCH         TOY\nINDEP         DISCRETE\n" *
                                    "    RHS       DEM1      4.0            PERIOD2   0.5\n" *
@@ -523,6 +562,130 @@ end
         optimize!(model)
         # Post_Results gives 18615.932: 0.104 less, as for fxm2.16, read in two stages
         @test isapprox(objective_value(model), 18616.036; atol = 1e-3)
+    end
+
+    @testset "Two-stage problems as trees" begin
+        smps = read_smps(joinpath(DATA, "lands.cor"), joinpath(DATA, "lands.tim"), joinpath(DATA, "lands.sto"))
+        tree = scenario_tree(smps)
+        @test tree isa SMPSTree && tree.periods == ["PERIOD1", "PERIOD2"]
+        @test tree.nodeperiod == [1, 2, 2, 2] && bundles(tree, 2) == [[1], [2], [3]]
+        model, _ = extensive_form(tree; optimizer = HiGHS.Optimizer)
+        set_silent(model)
+        optimize!(model)
+        @test isapprox(objective_value(model), 381.853333; rtol = 1e-6)
+        (; ξ, p) = enumerate_scenarios(smps.law)
+        @test scenario_tree(smps, ξ, p).values == tree.values
+        # the data of a scenario: the first stage, then the second
+        d = scenario_data(tree, 2)
+        stage2 = second_stage(smps, ξ[2])
+        @test d.rhs == [smps.b; stage2.h] && d.c == [smps.c; stage2.q]
+        @test d.A == [smps.A spzeros(length(smps.b), length(smps.q)); stage2.T stage2.W]
+        sampled = sample_tree(MersenneTwister(1), smps, 5)
+        @test length(sampled.scenarios) == 5 && all(sampled.scenarioprobability .≈ 0.2)
+        # written as a tree in two periods, read back as a two-stage problem
+        prefix = joinpath(mktempdir(), "tree")
+        write_smps(prefix, tree)
+        back = read_smps(prefix)
+        @test back isa SMPSProblem && scenario_set(back) == scenario_set(smps)
+    end
+
+    @testset "Writing trees" begin
+        for name in ("KandW3R", "wat_10_C_32")
+            tree = read_smps(joinpath(DATA, name))
+            @test same_tree(tree, tree_round_trip(tree))
+        end
+        # random bounds and costs, data of the root, a maximization
+        stoch = """
+            STOCH         TOY
+            SCENARIOS     DISCRETE                REPLACE
+             SC A         ROOT      0.5            PERIOD1
+                X1        COST      4.0
+             UP BND       Y1        1.5
+             SC B         A         0.25           PERIOD2
+                RHS       DEM1      6.0
+             SC C         B         0.25           PERIOD3
+             LO BND       Y3        2.0
+                Y3        COST      7.0
+            ENDATA
+            """
+        tree = read_smps(instance(stoch; time = THREE))
+        @test same_tree(tree, tree_round_trip(tree))
+        maxi = read_smps(instance(stoch; time = THREE); sense = :max)
+        back = tree_round_trip(maxi)
+        @test back.sense === :max && same_tree(maxi, back)
+        # a core file out of the order of the periods (an explicit time file): written in order
+        explicit = """
+            TIME          TOY
+            PERIODS       EXPLICIT
+                PERIOD1
+                PERIOD2
+                PERIOD3
+            COLUMNS
+                X1        PERIOD1
+                X2        PERIOD1
+                Y1        PERIOD3
+                Y2        PERIOD2
+                Y3        PERIOD3
+            ROWS
+                CAP       PERIOD1
+                DEM1      PERIOD3
+                DEM2      PERIOD2
+                BAL       PERIOD3
+            ENDATA
+            """
+        stoch = "STOCH         TOY\nSCENARIOS     DISCRETE\n SC A         ROOT      0.5            PERIOD2\n" *
+                "    RHS       DEM2      2.0\n SC B         A         0.5            PERIOD3\n" *
+                "    RHS       DEM1      6.0\nENDATA\n"
+        tree = read_smps(instance(stoch; time = explicit))
+        back = tree_round_trip(tree)
+        @test back.columns == ["X1", "X2", "Y2", "Y1", "Y3"] && same_tree(tree, back)
+        # a tree built from a law by period, written as a tree
+        plt = read_smps(joinpath(DATA, "pltexpa-3.cor"), joinpath(DATA, "pltexpa-3.tim"),
+                        joinpath(DATA, "pltexpa-3-6.sto"))
+        tree = scenario_tree(plt)
+        @test same_tree(tree, tree_round_trip(tree))
+    end
+
+    @testset "Writing laws by period" begin
+        stoch = """
+            STOCH         TOY
+            INDEP         DISCRETE
+                RHS       DEM1      4.0            PERIOD2   0.5
+                RHS       DEM1      6.0            PERIOD2   0.5
+                RHS       BAL       8.0            PERIOD2   0.25
+                RHS       BAL       9.0            PERIOD2   0.75
+                Y3        COST      2.0            PERIOD3   0.5
+                Y3        COST      3.0            PERIOD3   0.5
+            BLOCKS        DISCRETE
+             BL B1        PERIOD3   0.4
+             LO BND       Y3        1.0
+                Y1        BAL       2.0
+             BL B1        PERIOD3   0.6
+             LO BND       Y3        2.0
+            ENDATA
+            """
+        s = read_smps(instance(stoch; time = THREE))
+        back = stagewise_round_trip(s)
+        @test back isa SMPSStagewise && support_size(back) == support_size(s) == 16
+        @test Dict(zip(back.names, back.revealperiod)) == Dict(zip(s.names, s.revealperiod))
+        @test stagewise_scenarios(back) == stagewise_scenarios(s)
+        maxi = read_smps(instance(stoch; time = THREE); sense = :max)
+        @test stagewise_scenarios(stagewise_round_trip(maxi)) == stagewise_scenarios(maxi)
+        # continuous laws keep their distribution and modifier
+        normal = read_smps(instance("STOCH         TOY\nINDEP         NORMAL                  ADD\n" *
+                                    "    RHS       DEM1      1.0            PERIOD2   4.0\n" *
+                                    "    RHS       BAL       0.0            PERIOD3   1.0\nENDATA\n"; time = THREE))
+        back = stagewise_round_trip(normal)
+        @test [(t, c[2], c[3]) for t in 2:3 for c in back.laws[t].continuous] ==
+              [(t, c[2], c[3]) for t in 2:3 for c in normal.laws[t].continuous]
+        # POSTS
+        plt = read_smps(joinpath(DATA, "pltexpa-3.cor"), joinpath(DATA, "pltexpa-3.tim"),
+                        joinpath(DATA, "pltexpa-3-6.sto"))
+        @test stagewise_scenarios(stagewise_round_trip(plt)) == stagewise_scenarios(plt)
+        fxm = @test_logs (:warn,) (:warn,) read_smps(joinpath(DATA, "fxm.cor"), joinpath(DATA, "fxm-3.tim"),
+                                                    joinpath(DATA, "fxm-3-6.sto"); probability_sums = :as_written)
+        back = @test_logs (:warn,) (:warn,) stagewise_round_trip(fxm; probability_sums = :as_written)
+        @test stagewise_scenarios(back) == stagewise_scenarios(fxm)
     end
 
     @testset "KandW3R: three periods, nine scenarios" begin

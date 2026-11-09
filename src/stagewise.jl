@@ -110,7 +110,9 @@ end
     scenario_tree(s::SMPSStagewise; limit = 100_000)
 
 The scenario tree of `s`, as an [`SMPSTree`](@ref): each node of period `t − 1` has a child for each
-point of the support of the law of period `t`, with the product of the probabilities. An error if
+point of the support of the law of period `t`, with the product of the probabilities; the nodes
+are numbered depth first, scenario by scenario, as `read_smps` numbers those of a `SCENARIOS`
+section. An error if
 `s` has more than `limit` scenarios (sample a tree instead, [`sample_tree`](@ref)), or continuous
 elements. A period without random data adds one child to each node.
 """
@@ -130,7 +132,8 @@ has `branching[t − 1]` children (`branching` a vector of length `length(s.peri
 integer, the same in every period), each drawn from the law of period `t` with probability `1 /
 branching[t − 1]` times its parent's. The draws are independent from node to node (conditional
 sampling); with `common = true`, the same draws serve every node of a period. A period without
-random data adds one child to each node.
+random data adds one child to each node. The nodes are numbered depth first, as by
+[`scenario_tree`](@ref).
 """
 function sample_tree(rng::AbstractRNG, s::SMPSStagewise, branching; common::Bool = false)
     T = length(s.periods)
@@ -158,10 +161,10 @@ function build_tree(s::SMPSStagewise, children)
     draw = Vector{Vector{Float64}}([Float64[]])      # the draw of the law of each node's period
     values = [Pair{Int,Float64}[]]
     ancestors = [[1]]                                 # a node's ancestors by period, itself last
-    frontier = [1]
-    for t in 2:T
-        next = Int[]
-        for p in frontier, (ξ, q) in children(t, p)
+    frontier = Int[]                                  # the leaves, in the order of the scenarios
+    # depth first, the nodes numbered scenario by scenario, as a SCENARIOS section reads them
+    function visit(p, t)
+        for (ξ, q) in children(t, p)
             push!(nodeperiod, t)
             push!(parent, p)
             push!(probability, probability[p] * q)
@@ -175,10 +178,10 @@ function build_tree(s::SMPSStagewise, children)
                 v == s.base[e] || push!(node, e => v)
             end
             push!(values, node)
-            push!(next, n)
+            t == T ? push!(frontier, n) : visit(n, t + 1)
         end
-        frontier = next
     end
+    T == 1 ? push!(frontier, 1) : visit(1, 2)
     paths = [ancestors[n] for n in frontier]
     return SMPSTree(s.name, s.sense, s.objective, s.periods, s.columns, s.rows, s.colperiod,
                     s.rowperiod, s.c, s.A, s.senses, s.rhs, s.ranges, s.lb, s.ub, s.integer,

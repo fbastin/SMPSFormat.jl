@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/fbastin/SMPSFormat.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/fbastin/SMPSFormat.jl/actions/workflows/CI.yml)
 
-Read stochastic linear programs in the SMPS format, two-stage ones and multistage ones with their
-scenario tree, and write two-stage ones (Birge et al., 1987;
+Read and write stochastic linear programs in the SMPS format, two-stage ones and multistage ones,
+given by their scenario tree or by a law for each period (Birge et al., 1987;
 Gassmann's description of the format; Gassmann and Kristjánsson, *The SMPS format explained*,
 IMA Journal of Management Mathematics, 2007, doi:10.1093/imaman/dpm007).
 
@@ -36,6 +36,11 @@ s = read_smps("pltexpa-3.cor", "pltexpa-3.tim", "pltexpa-3-6.sto")  # BLOCKS: an
 support_size(s)                               # 36 scenarios
 tree = scenario_tree(s)                       # the whole tree, when it is small enough
 tree = sample_tree(rng, s, [10, 5])           # or a sampled one: 10 children, then 5
+write_smps("sampled-tree", tree)              # a tree, written as SCENARIOS
+write_smps("copy", s)                         # a law by period, INDEP and BLOCKS with periods
+
+tree = scenario_tree(smps)                    # a two-stage problem as a tree in two periods
+tree = sample_tree(rng, smps, 100)            # or with 100 scenarios drawn
 ```
 
 ## What it reads
@@ -60,11 +65,19 @@ tree = sample_tree(rng, s, [10, 5])           # or a sampled one: 10 children, t
   section is `NAME` (as some of SMI's), comment lines with a hash in the first column (as
   CoinMpsIO reads them).
 
-Not yet: `SCENARIOS` mixed with `INDEP` or `BLOCKS` in more than two periods, writing a
-multistage instance, `NODES`,
-`DISTRIB`, `MVNORMAL`, `LINTRAN`, chance constraints, simple recourse, random ranges, random
-bounds in `INDEP` sections or of the types `FR`, `MI`, `PL`, `BV`, `LI`, `UI`, network core
-files. They are refused with an error.
+Not yet: `SCENARIOS` mixed with `INDEP` or `BLOCKS` in more than two periods, `NODES`, `DISTRIB`,
+`MVNORMAL`, `LINTRAN`, chance constraints, simple recourse, random ranges, random bounds in
+`INDEP` sections or of the types `FR`, `MI`, `PL`, `BV`, `LI`, `UI`, network core files. They
+are refused with an error.
+
+## What it writes
+
+`write_smps` writes a two-stage problem (its law, or given scenarios), a tree (`SCENARIOS`, each
+scenario branching from the first that shares its last common node), or a law by period (`INDEP`
+and `BLOCKS`, each line in the period it is revealed in), in free MPS with the columns and rows
+in the order of their periods; `read_smps` reads them back into the same problem. A tree's nodes
+are numbered scenario by scenario, whether it is read or built, so that a tree written and read
+back has the same nodes.
 
 ## Conventions
 

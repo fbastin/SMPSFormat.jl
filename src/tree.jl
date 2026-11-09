@@ -98,3 +98,42 @@ function bundles(tree::SMPSTree, t::Integer)
     end
     return [groups[n] for n in sort!(collect(keys(groups)))]
 end
+
+"""
+    scenario_tree(smps::SMPSProblem; limit = 100_000)
+    scenario_tree(smps::SMPSProblem, ξ, p)
+    sample_tree([rng,] smps::SMPSProblem, n)
+
+The two-stage problem `smps` as an [`SMPSTree`](@ref) in two periods, `PERIOD1` and `PERIOD2`: the
+root and a node per scenario, the first stage before the second. The scenarios are every point of
+the support of its law (an error beyond `limit`), those given (`ξ`, as
+[`enumerate_scenarios`](@ref) or `rand` give them, with the probabilities `p`), or `n` draws of its
+law, each with probability `1 / n`. What applies to trees then applies to it:
+[`scenario_data`](@ref), [`bundles`](@ref), [`extensive_form`](@ref), [`write_smps`](@ref).
+"""
+function scenario_tree(smps::SMPSProblem, ξ::AbstractVector, p::AbstractVector)
+    length(ξ) == length(p) || error("$(length(ξ)) scenarios but $(length(p)) probabilities")
+    d = two_stage_core(smps)
+    n1, m1 = length(smps.columns1), length(smps.rows1)
+    elements = map(smps.elements) do (kind, i, j)
+        kind === :h && return (:rhs, m1 + i, 0)
+        kind === :q && return (:c, n1 + i, 0)
+        kind === :T && return (:A, m1 + i, j)
+        kind === :W && return (:A, m1 + i, n1 + j)
+        return (kind, n1 + i, 0)                    # a bound
+    end
+    base, S = smps.law.base, length(ξ)
+    values = [[Pair{Int,Float64}[]];
+              [[e => v for (e, v) in enumerate(point) if v != base[e]] for point in ξ]]
+    return SMPSTree(smps.name, smps.sense, smps.objective, ["PERIOD1", "PERIOD2"], d.columns, d.rows,
+                    d.colperiod, d.rowperiod, d.c, d.A, d.senses, d.rhs, d.ranges, d.lb, d.ub,
+                    d.integer, smps.constant, elements, smps.names, fill(2, length(elements)),
+                    [1; fill(2, S)], [0; fill(1, S)], [sum(p); collect(Float64, p)], values,
+                    [[1, 1 + s] for s in 1:S], ["S$s" for s in 1:S], collect(Float64, p))
+end
+
+scenario_tree(smps::SMPSProblem; limit::Integer = 100_000) =
+    scenario_tree(smps, enumerate_scenarios(smps.law; limit)...)
+sample_tree(rng::AbstractRNG, smps::SMPSProblem, n::Integer) =
+    scenario_tree(smps, rand(rng, smps.law, n), fill(1 / n, n))
+sample_tree(smps::SMPSProblem, n::Integer) = sample_tree(Random.default_rng(), smps, n)

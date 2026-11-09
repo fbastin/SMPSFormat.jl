@@ -111,3 +111,17 @@ function second_stage(smps::SMPSProblem, ξ::AbstractVector)
     end
     return (q = q, T = T, W = W, h = h, lb = lb, ub = ub)
 end
+
+"""The data of the two-stage problem `smps` in one piece, the first stage before the second: the
+named tuple of its `columns`, `rows`, `colperiod`, `rowperiod`, `c`, `A` (rows × columns), `senses`,
+`rhs`, `ranges`, `lb`, `ub` and `integer`."""
+function two_stage_core(smps::SMPSProblem)
+    n1, n2 = length(smps.columns1), length(smps.columns2)
+    m1, m2 = length(smps.rows1), length(smps.rows2)
+    return (columns = [smps.columns1; smps.columns2], rows = [smps.rows1; smps.rows2],
+            colperiod = [fill(1, n1); fill(2, n2)], rowperiod = [fill(1, m1); fill(2, m2)],
+            c = [smps.c; smps.q], A = [smps.A spzeros(m1, n2); smps.T smps.W],
+            senses = [smps.senses1; smps.senses2], rhs = [smps.b; smps.h],
+            ranges = [smps.ranges1; smps.ranges2], lb = [smps.lb1; smps.lb], ub = [smps.ub1; smps.ub],
+            integer = [smps.integer1; smps.integer2])
+end

@@ -1,7 +1,7 @@
 """
     SMPSFormat
 
-Read stochastic linear programs in the SMPS format, and write two-stage ones (Birge et al., 1987;
+Read and write stochastic linear programs in the SMPS format (Birge et al., 1987;
 Gassmann's description of the format; Gassmann and Kristjánsson, 2007): a **core** file, the
 deterministic problem in MPS format; a **time** file, which splits it into stages; a **stoch**
 file, the law of its random data.
@@ -15,7 +15,9 @@ file, the law of its random data.
   [`bundles`](@ref) the scenarios that share a node.
 - The law can be enumerated, [`enumerate_scenarios`](@ref), when it is discrete, and sampled,
   `rand(rng, law, n)`; [`second_stage`](@ref) gives the data of the second stage in a scenario.
-- [`write_smps`](@ref) writes a problem back, with its law or with given scenarios.
+- [`write_smps`](@ref) writes a problem back: a two-stage problem with its law or with given
+  scenarios, a tree, a law by period. [`scenario_tree`](@ref) and [`sample_tree`](@ref) also turn
+  a two-stage problem into a tree in two periods, so that a code written for trees treats both.
 - With JuMP loaded, [`extensive_form`](@ref) builds the deterministic equivalent: for given
   scenarios of a two-stage instance, or on the tree of a multistage one.
 
