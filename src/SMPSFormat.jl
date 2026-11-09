@@ -1,7 +1,7 @@
 """
     SMPSFormat
 
-Read and write stochastic linear programs in the SMPS format (Birge et al., 1987;
+Read stochastic linear programs in the SMPS format, and write two-stage ones (Birge et al., 1987;
 Gassmann's description of the format; Gassmann and Kristjánsson, 2007): a **core** file, the
 deterministic problem in MPS format; a **time** file, which splits it into stages; a **stoch**
 file, the law of its random data.
