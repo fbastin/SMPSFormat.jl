@@ -29,6 +29,7 @@ that differ between the files (a warning), probabilities rounded to the digits w
 """
 module SMPSFormat
 
+using CodecZlib: GzipDecompressorStream
 using Distributions: Distributions, UnivariateDistribution, Normal, Uniform, Gamma, Beta, LogNormal
 using Printf
 using Random

@@ -43,6 +43,9 @@ function write_smps(prefix::AbstractString, s::SMPSStagewise)
 end
 
 function write_files(prefix, d, stoch)
+    for name in [d.name; d.objective; d.columns; d.rows]
+        any(isspace, name) && error("the name \"$name\" contains a blank: free MPS cannot write it")
+    end
     paths = (prefix * ".cor", prefix * ".tim", prefix * ".sto")
     open(io -> write_core(io, d), paths[1], "w")
     open(io -> write_time(io, d), paths[2], "w")
@@ -52,7 +55,7 @@ end
 
 num(v::Real) = string(Float64(v))
 entry(io, a, b, v) = println(io, "    ", rpad(a, 10), "  ", rpad(b, 10), "  ", num(v))
-problemname(name) = isempty(name) ? "SMPS" : name
+problemname(name) = isempty(name) ? "SMPS" : replace(name, r"\s+" => "_")
 
 # ---- the core data to write
 

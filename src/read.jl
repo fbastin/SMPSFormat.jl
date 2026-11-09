@@ -1,14 +1,21 @@
 # Reading the three files of an SMPS instance.
 
 """
-    read_smps(core, time, stoch; sense = nothing, probability_sums = :rounding)
-    read_smps(prefix; sense = nothing, probability_sums = :rounding)
+    read_smps(core, time, stoch; sense = nothing, probability_sums = :rounding, format = :free)
+    read_smps(prefix; sense = nothing, probability_sums = :rounding, format = :free)
 
 Read an instance in the SMPS format: an instance in two periods into an [`SMPSProblem`](@ref);
 one in more periods into an [`SMPSTree`](@ref), its scenario tree, when its stoch file gives the
 tree (`SCENARIOS`), or into an [`SMPSStagewise`](@ref), a law by period, when it gives `INDEP` and
 `BLOCKS` sections. `read_smps(prefix)` looks for `prefix` followed by `.cor` or `.core`, `.tim` or
-`.time`, and `.sto` or `.stoch`.
+`.time`, and `.sto` or `.stoch`, each possibly followed by `.gz`: a file whose name ends in `.gz`
+is read through gzip. An error in a file names it and the line read.
+
+**`format`**: `:free`, the default, reads the fields separated by blanks (free MPS, which also
+reads most fixed files); `:fixed` reads them in the columns of fixed MPS, so that names may
+contain blanks (a word belongs to the field it starts in, or to the next one if it starts between
+two; what starts after column 61 is ignored). It applies to the three files, and only suits files
+in fixed format: a compact layout is read in free format.
 
 **The core file** is in free MPS format: `NAME`, `OBJSENSE`, `OBJNAME`, `ROWS`, `COLUMNS` (with
 integer markers), `RHS`, `RANGES` and `BOUNDS` (`UP`, `LO`, `FX`, `FR`, `MI`, `PL`, `BV`, `LI`,
@@ -82,26 +89,31 @@ or the scenarios) that do not sum up to one:
   of them all.
 """
 function read_smps(prefix::AbstractString; kwargs...)
-    find(exts) = (i = findfirst(e -> isfile(prefix * e), exts);
-                  i === nothing ? error("no file $prefix$(join(exts, " or "))") : prefix * exts[i])
+    function find(exts)
+        exts = [exts; exts .* ".gz"]
+        i = findfirst(e -> isfile(prefix * e), exts)
+        i === nothing ? error("no file $prefix$(join(exts, ", ", " or "))") : prefix * exts[i]
+    end
     return read_smps(find([".cor", ".core", ".COR", ".CORE"]), find([".tim", ".time", ".TIM", ".TIME"]),
                      find([".sto", ".stoch", ".STO", ".STOCH"]); kwargs...)
 end
 
 function read_smps(core::AbstractString, time::AbstractString, stoch::AbstractString;
-                   sense::Union{Nothing,Symbol} = nothing, probability_sums::Symbol = :rounding)
+                   sense::Union{Nothing,Symbol} = nothing, probability_sums::Symbol = :rounding,
+                   format::Symbol = :free)
     sense in (nothing, :min, :max) || error("sense must be :min or :max, got :$sense")
+    format in (:free, :fixed) || error("format must be :free or :fixed, got :$format")
     probability_sums in (:rounding, :normalize, :as_written) ||
         error("probability_sums must be :rounding, :normalize or :as_written, got :$probability_sums")
-    cor = read_core(core)
+    cor = read_core(core, format)
     sense = something(sense, cor.sense)
     sign = sense === :max ? -1.0 : 1.0
-    tim = read_time(time, cor)
+    tim = read_time(time, cor, format)
     # two periods; more, with a law by period (INDEP, BLOCKS); more, with a scenario tree
     kind = length(tim.periods) == 2 ? :twostage :
-           any(in(("INDEP", "BLOCKS")), stoch_sections(stoch)) ? :stagewise : :tree
-    sto = kind === :tree ? read_tree(stoch, cor, tim, probability_sums) :
-          read_stoch(stoch, cor, tim, probability_sums)
+           any(in(("INDEP", "BLOCKS")), stoch_sections(stoch, format)) ? :stagewise : :tree
+    sto = kind === :tree ? read_tree(stoch, cor, tim, probability_sums, format) :
+          read_stoch(stoch, cor, tim, probability_sums, format)
     names = (cor.name, tim.name, sto.name)
     allequal(names) || @warn "The SMPS files name different problems: $(names[1]) (core), " *
                              "$(names[2]) (time), $(names[3]) (stoch)"
@@ -111,12 +123,14 @@ function read_smps(core::AbstractString, time::AbstractString, stoch::AbstractSt
 end
 
 """The sections of a stoch file, by their headers."""
-stoch_sections(path) = Set(replace(uppercase(f[1]), r"^SCEN$" => "SCENARIOS")
-                           for (header, f) in smps_lines(path) if header)
+stoch_sections(path, format = :free) = Set(replace(uppercase(f[1]), r"^SCEN$" => "SCENARIOS")
+                                           for (header, f, _) in smps_lines(path; format) if header)
 
 # ---- the core file
 
-function read_core(path::AbstractString)
+function read_core(path::AbstractString, format::Symbol = :free)
+    lineno = Ref(0)                                 # the line read, for the errors
+    at() = "$path:$(lineno[])"
     name, objective, sense = "", "", :min
     rows, senses, columns = String[], Char[], String[]
     rowindex, colindex = Dict{String,Int}(), Dict{String,Int}()
@@ -131,22 +145,23 @@ function read_core(path::AbstractString)
     vectors = Dict(s => String[] for s in ("RHS", "RANGES", "BOUNDS"))
     first_vector(section, label) = (label in vectors[section] || push!(vectors[section], label);
                                     label == vectors[section][1])
-    for (header, f) in smps_lines(path)
+    for (header, f, linenumber) in smps_lines(path; format)
+        lineno[] = linenumber
         if header
             section = uppercase(f[1])
             if section == "NAME"
                 name = join(f[2:end], " ")
             elseif section == "OBJSENSE" && length(f) > 1
-                sense = objsense(path, f[2])
+                sense = objsense(at(), f[2])
             elseif section == "OBJNAME" && length(f) > 1
                 objname = f[2]
             elseif !(section in ("OBJSENSE", "OBJNAME", "ROWS", "COLUMNS", "RHS", "RANGES", "BOUNDS", "ENDATA"))
-                error("$path: section $section is not supported")
+                error("$(at()): section $section is not supported")
             end
             continue
         end
         if section == "OBJSENSE"
-            sense = objsense(path, f[1])
+            sense = objsense(at(), f[1])
         elseif section == "OBJNAME"
             objname = f[1]
         elseif section == "ROWS"
@@ -159,7 +174,7 @@ function read_core(path::AbstractString)
                 push!(senses, kind[1])
                 rowindex[row] = length(rows)
             else
-                error("$path: unknown row type $kind")
+                error("$(at()): unknown row type $kind")
             end
         elseif section == "COLUMNS"
             if length(f) >= 3 && f[2] in ("'MARKER'", "MARKER")
@@ -178,7 +193,7 @@ function read_core(path::AbstractString)
                 if row == objective
                     cost[j] = value
                 elseif !(row in ignored)
-                    haskey(rowindex, row) || error("$path: unknown row $row in column $col")
+                    haskey(rowindex, row) || error("$(at()): unknown row $row in column $col")
                     entries[(rowindex[row], j)] = value
                 end
             end
@@ -192,9 +207,9 @@ function read_core(path::AbstractString)
                 row, value = f[k], number(f[k+1])
                 if row == objective
                     section == "RHS" ? (constant = -value) :  # MPS: the RHS of the objective is −constant
-                    error("$path: a range on the objective row")
+                    error("$(at()): a range on the objective row")
                 elseif !(row in ignored)
-                    haskey(rowindex, row) || error("$path: unknown row $row in section $section")
+                    haskey(rowindex, row) || error("$(at()): unknown row $row in section $section")
                     (section == "RHS" ? rhs : ranges)[rowindex[row]] = value
                 end
             end
@@ -209,7 +224,7 @@ function read_core(path::AbstractString)
                 push!(boundnames, f[2])
                 first_vector("BOUNDS", f[2]) || continue
             end
-            haskey(colindex, col) || error("$path: unknown column $col in section BOUNDS")
+            haskey(colindex, col) || error("$(at()): unknown column $col in section BOUNDS")
             j = colindex[col]
             kind == "UP" && (upper[j] = value)
             kind == "LO" && (lower[j] = value)
@@ -221,7 +236,7 @@ function read_core(path::AbstractString)
             kind == "LI" && (lower[j] = value; push!(integer, j))
             kind == "UI" && (upper[j] = value; push!(integer, j))
             kind in ("UP", "LO", "FX", "FR", "MI", "PL", "BV", "LI", "UI") ||
-                error("$path: bound type $kind is not supported")
+                error("$(at()): bound type $kind is not supported")
         end
     end
     isempty(objective) && error("$path: " * (isempty(objname) ? "no objective row (type N)" :
@@ -244,29 +259,36 @@ end
 
 # ---- the time file: the period of each column and row
 
-function read_time(path::AbstractString, cor)
+function read_time(path::AbstractString, cor, format::Symbol = :free)
+    lineno = Ref(0)                                 # the line read, for the errors
+    at() = "$path:$(lineno[])"
     name, starts, periods, section, explicit = "", Tuple{String,String}[], String[], "", false
     colperiod, rowperiod = Dict{String,String}(), Dict{String,String}()
-    for (header, f) in smps_lines(path)
+    line = Dict{Any,Int}()                          # a period's start, a column, a row => its line
+    for (header, f, linenumber) in smps_lines(path; format)
+        lineno[] = linenumber
         if header
             section = uppercase(f[1])
             section == "NAME" && (section = "TIME")    # as some of SMI's files have it
             section == "TIME" && (name = join(f[2:end], " "))
             section == "PERIODS" && (explicit = length(f) > 1 && uppercase(f[2]) == "EXPLICIT")
             section in ("TIME", "PERIODS", "COLUMNS", "ROWS", "ENDATA") ||
-                error("$path: section $section is not supported")
+                error("$(at()): section $section is not supported")
             continue
         end
         if section == "PERIODS" && !explicit
-            length(f) >= 3 || error("$path: a period needs a column, a row and a name")
+            length(f) >= 3 || error("$(at()): a period needs a column, a row and a name")
             push!(starts, (f[1], f[2]))
             push!(periods, f[3])
+            line[length(periods)] = linenumber
         elseif section == "PERIODS"
             push!(periods, f[1])
         elseif section == "COLUMNS"
             colperiod[f[1]] = f[2]
+            line[("column", f[1])] = linenumber
         elseif section == "ROWS"
             rowperiod[f[1]] = f[2]
+            line[("row", f[1])] = linenumber
         end
     end
     length(periods) >= 2 || error("$path: $(length(periods)) period(s); at least two are needed")
@@ -278,21 +300,23 @@ function read_time(path::AbstractString, cor)
         for (list, index, stage, what) in ((colperiod, colindex, colstage, "column"),
                                            (rowperiod, rowindex, rowstage, "row"))
             for (label, p) in list
-                haskey(periodindex, p) || error("$path: unknown period $p of the $what $label")
+                place = "$path:$(line[(what, label)])"
+                haskey(periodindex, p) || error("$place: unknown period $p of the $what $label")
                 if haskey(index, label)
                     stage[index[label]] = periodindex[p]
                 elseif what == "column"
-                    error("$path: unknown column $label")
+                    error("$place: unknown column $label")
                 end                                 # a row: the objective or another free row
             end
         end
     else                                            # each period from its first column and row on
         for t in 2:length(periods)
             c, r = starts[t]
-            haskey(colindex, c) || error("$path: unknown column $c (the first of period $(periods[t]))")
-            haskey(rowindex, r) || error("$path: unknown row $r (the first of period $(periods[t]))")
+            place = "$path:$(line[t])"
+            haskey(colindex, c) || error("$place: unknown column $c (the first of period $(periods[t]))")
+            haskey(rowindex, r) || error("$place: unknown row $r (the first of period $(periods[t]))")
             t == 2 || (colindex[c] > colindex[starts[t-1][1]] && rowindex[r] > rowindex[starts[t-1][2]]) ||
-                error("$path: period $(periods[t]) starts before period $(periods[t-1]) in the core file")
+                error("$place: period $(periods[t]) starts before period $(periods[t-1]) in the core file")
             colstage[colindex[c]:end] .= t
             rowstage[rowindex[r]:end] .= t
         end
@@ -316,7 +340,9 @@ function distribution(path, kind, p1, p2)
     error("$path: distribution $kind is not supported")
 end
 
-function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
+function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol, format::Symbol = :free)
+    lineno = Ref(0)                                 # the line read, for the errors
+    at() = "$path:$(lineno[])"
     (; rowindex, colindex, entries, objective, rhsnames, rangenames, boundnames) = cor
     (; periods, colstage, rowstage) = tim
     multistage = length(periods) > 2
@@ -331,22 +357,22 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             t = if haskey(colindex, col)
                 j = colindex[col]
                 if row == objective
-                    colstage[j] >= 2 || error("$path: random first-stage cost of $col")
+                    colstage[j] >= 2 || error("$(at()): random first-stage cost of $col")
                     colstage[j]
                 else
-                    haskey(rowindex, row) || error("$path: unknown row $row")
-                    rowstage[rowindex[row]] >= 2 || error("$path: random entry in the first-stage row $row")
+                    haskey(rowindex, row) || error("$(at()): unknown row $row")
+                    rowstage[rowindex[row]] >= 2 || error("$(at()): random entry in the first-stage row $row")
                     haskey(entries, (rowindex[row], j)) ||
-                        error("$path: random entry ($row, $col) absent from the core file")
+                        error("$(at()): random entry ($row, $col) absent from the core file")
                     rowstage[rowindex[row]]
                 end
             else
-                col in rangenames && error("$path: random range of $row: not supported")
-                col in boundnames && error("$path: random bound of $row: not supported")
-                row == objective && error("$path: random constant of the objective: not supported")
-                haskey(rowindex, row) || error("$path: unknown row $row")
+                col in rangenames && error("$(at()): random range of $row: not supported")
+                col in boundnames && error("$(at()): random bound of $row: not supported")
+                row == objective && error("$(at()): random constant of the objective: not supported")
+                haskey(rowindex, row) || error("$(at()): unknown row $row")
                 rowstage[rowindex[row]] >= 2 ||
-                    error("$path: random right-hand side of the first-stage row $row")
+                    error("$(at()): random right-hand side of the first-stage row $row")
                 rowstage[rowindex[row]]
             end
             push!(elementnames, (col, row))
@@ -355,7 +381,7 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             return length(elementnames)
         end
         get!(owner, e, block) == block ||
-            error("$path: ($col, $row) is random in two blocks, $(owner[e]) and $block")
+            error("$(at()): ($col, $row) is random in two blocks, $(owner[e]) and $block")
         return e
     end
     # a random bound, :lb or :ub, of a column: its names are the bound type and the column
@@ -363,15 +389,15 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     boundindex = Dict{Tuple{Symbol,String},Int}()
     function bound_element(kind, col, block)
         e = get!(boundindex, (kind, col)) do
-            haskey(colindex, col) || error("$path: unknown column $col in a random bound")
-            colstage[colindex[col]] >= 2 || error("$path: random bound of the first-stage column $col")
+            haskey(colindex, col) || error("$(at()): unknown column $col in a random bound")
+            colstage[colindex[col]] >= 2 || error("$(at()): random bound of the first-stage column $col")
             push!(elementnames, (kind === :lb ? "LO" : "UP", col))
             push!(elementperiod, colstage[colindex[col]])
             push!(elementbound, kind)
             return length(elementnames)
         end
         get!(owner, e, block) == block ||
-            error("$path: the bound of $col is random in two blocks, $(owner[e]) and $block")
+            error("$(at()): the bound of $col is random in two blocks, $(owner[e]) and $block")
         return e
     end
     # the period a block or an INDEP element is revealed in: the one its line gives in more than
@@ -380,13 +406,13 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     function revealed(label, e)
         multistage || return 2
         t = label === nothing ? elementperiod[e] : get(periodindex, strip(label, '\''), 0)
-        t == 0 && error("$path: unknown period $label")
-        t >= 2 || error("$path: random data revealed in the first period, $(periods[1])")
+        t == 0 && error("$(at()): unknown period $label")
+        t >= 2 || error("$(at()): random data revealed in the first period, $(periods[1])")
         return t
     end
     function check_revealed(e, t)
         elementperiod[e] >= t ||
-            error("$path: $(join(elementnames[e], ' ')), of period $(periods[elementperiod[e]]), " *
+            error("$(at()): $(join(elementnames[e], ' ')), of period $(periods[elementperiod[e]]), " *
                   "revealed later, in period $(periods[t])")
     end
     blocks = String[]                                # the names of the discrete blocks
@@ -402,7 +428,8 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
     newblock(label, t) = (push!(blocks, label); push!(blockperiod, t); push!(probabilities, Float64[]);
                           push!(halfunits, Float64[]); push!(realizations, Dict{Int,Float64}[]);
                           push!(modifiers, modifier); blockindex[label] = length(blocks))
-    for (header, f) in smps_lines(path)
+    for (header, f, linenumber) in smps_lines(path; format)
+        lineno[] = linenumber
         if header
             section = uppercase(f[1])
             section == "SCEN" && (section = "SCENARIOS")
@@ -412,27 +439,27 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             elseif section in ("INDEP", "BLOCKS", "SCENARIOS")
                 kind = length(f) > 1 ? uppercase(f[2]) : "DISCRETE"
                 kind in DISTRIBUTIONS ||
-                    error("$path: $section $kind is not supported (distributions: $(join(DISTRIBUTIONS, ", ")))")
+                    error("$(at()): $section $kind is not supported (distributions: $(join(DISTRIBUTIONS, ", ")))")
                 section != "INDEP" && kind != "DISCRETE" &&
-                    error("$path: $section $kind is not supported, only DISCRETE")
+                    error("$(at()): $section $kind is not supported, only DISCRETE")
                 word = length(f) > 2 ? uppercase(f[3]) : "REPLACE"
-                word in ("REPLACE", "ADD", "MULTIPLY") || error("$path: unknown modifier $word")
+                word in ("REPLACE", "ADD", "MULTIPLY") || error("$(at()): unknown modifier $word")
                 modifier = Symbol(lowercase(word))
                 section == "SCENARIOS" && modifier !== :replace &&
-                    error("$path: SCENARIOS $word is not supported: scenarios replace the values")
+                    error("$(at()): SCENARIOS $word is not supported: scenarios replace the values")
                 section == "SCENARIOS" && multistage &&
-                    error("$path: SCENARIOS with INDEP or BLOCKS sections in more than two periods: " *
+                    error("$(at()): SCENARIOS with INDEP or BLOCKS sections in more than two periods: " *
                           "not supported")
             elseif section != "ENDATA"
-                error("$path: section $section is not supported")
+                error("$(at()): section $section is not supported")
             end
             continue
         end
         if section == "INDEP"
             col, row = f[1], f[2]
             uppercase(f[1]) in BOUND_TYPES && length(f) >= 3 && f[2] in boundnames &&
-                error("$path: random bound in an INDEP section: not supported")
-            length(f) in (4, 5) || error("$path: malformed INDEP line $(join(f, ' '))")
+                error("$(at()): random bound in an INDEP section: not supported")
+            length(f) in (4, 5) || error("$(at()): malformed INDEP line $(join(f, ' '))")
             if kind == "DISCRETE"
                 label = "INDEP ($col, $row)"
                 e = element(col, row, label)
@@ -440,31 +467,31 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
                 check_revealed(e, t)
                 haskey(blockindex, label) || newblock(label, t)
                 k = blockindex[label]
-                blockperiod[k] == t || error("$path: ($col, $row) revealed in two periods")
+                blockperiod[k] == t || error("$(at()): ($col, $row) revealed in two periods")
                 push!(probabilities[k], number(f[end]))
                 push!(halfunits[k], half_unit(f[end]))
                 push!(realizations[k], Dict(e => number(f[3])))
             else
                 e = element(col, row, "INDEP ($col, $row)")
-                any(c -> c[1] == e, continuous) && error("$path: two distributions for ($col, $row)")
+                any(c -> c[1] == e, continuous) && error("$(at()): two distributions for ($col, $row)")
                 t = revealed(length(f) == 5 ? f[4] : nothing, e)
                 check_revealed(e, t)
                 push!(continuous, (e, kind, number(f[3]), number(f[end]), modifier, t))
             end
         elseif section in ("BLOCKS", "SCENARIOS") && f[1] in ("BL", "SC")
             if f[1] == "BL"
-                length(f) >= 4 || error("$path: incomplete BL line $(join(f, ' '))")
+                length(f) >= 4 || error("$(at()): incomplete BL line $(join(f, ' '))")
                 label = "BLOCKS " * f[2]
                 isnew = !haskey(blockindex, label)
                 t = revealed(f[3], 0)
                 isnew && newblock(label, t)
                 k = blockindex[label]
-                blockperiod[k] == t || error("$path: block $(f[2]) revealed in two periods")
+                blockperiod[k] == t || error("$(at()): block $(f[2]) revealed in two periods")
                 # a realization lists what changes from the block's first one
                 push!(realizations[k], isnew ? Dict{Int,Float64}() : copy(realizations[k][1]))
                 prob = f[4]
             else
-                length(f) >= 4 || error("$path: incomplete SC line $(join(f, ' '))")
+                length(f) >= 4 || error("$(at()): incomplete SC line $(join(f, ' '))")
                 haskey(blockindex, "SCENARIOS") || newblock("SCENARIOS", 2)
                 k = blockindex["SCENARIOS"]
                 parent = strip(f[3], '\'')
@@ -474,7 +501,7 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
                 else
                     # a scenario branching from another at the second period is still two-stage
                     haskey(scenarioindex, parent) && period == periods[2] ||
-                        error("$path: scenario $(f[2]) branches from $parent at $period: not two-stage")
+                        error("$(at()): scenario $(f[2]) branches from $parent at $period: not two-stage")
                     copy(realizations[k][scenarioindex[parent]])
                 end
                 push!(realizations[k], inherited)
@@ -485,9 +512,9 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
             push!(probabilities[k], number(prob))
             push!(halfunits[k], half_unit(prob))
         elseif section in ("BLOCKS", "SCENARIOS")
-            current == 0 && error("$path: an entry before the first BL or SC line")
+            current == 0 && error("$(at()): an entry before the first BL or SC line")
             if is_bound_line(f, boundnames)
-                bounds, col, value = bound_line(path, f)
+                bounds, col, value = bound_line(at(), f)
                 for bound in bounds
                     e = bound_element(bound, col, blocks[current])
                     check_revealed(e, blockperiod[current])
@@ -495,7 +522,7 @@ function read_stoch(path::AbstractString, cor, tim, probability_sums::Symbol)
                 end
                 continue
             end
-            length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
+            length(f) in (3, 5) || error("$(at()): malformed line $(join(f, ' '))")
             for k in 2:2:(length(f) - 1)
                 e = element(f[1], f[k], blocks[current])
                 check_revealed(e, blockperiod[current])
@@ -625,7 +652,9 @@ end
 
 # ---- the stoch file of an instance in more than two periods: its scenario tree
 
-function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
+function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol, format::Symbol = :free)
+    lineno = Ref(0)                                 # the line read, for the errors
+    at() = "$path:$(lineno[])"
     (; rowindex, colindex, entries, objective, rangenames, boundnames) = cor
     (; periods, colstage, rowstage) = tim
     periodindex = Dict(p => t for (t, p) in enumerate(periods))
@@ -639,16 +668,16 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
                 if row == objective
                     colstage[j]
                 else
-                    haskey(rowindex, row) || error("$path: unknown row $row")
+                    haskey(rowindex, row) || error("$(at()): unknown row $row")
                     haskey(entries, (rowindex[row], j)) ||
-                        error("$path: random entry ($row, $col) absent from the core file")
+                        error("$(at()): random entry ($row, $col) absent from the core file")
                     rowstage[rowindex[row]]
                 end
             else
-                col in rangenames && error("$path: random range of $row: not supported")
-                col in boundnames && error("$path: random bound of $row: not supported")
-                row == objective && error("$path: random constant of the objective: not supported")
-                haskey(rowindex, row) || error("$path: unknown row $row")
+                col in rangenames && error("$(at()): random range of $row: not supported")
+                col in boundnames && error("$(at()): random bound of $row: not supported")
+                row == objective && error("$(at()): random constant of the objective: not supported")
+                haskey(rowindex, row) || error("$(at()): unknown row $row")
                 rowstage[rowindex[row]]
             end
             push!(elementnames, (col, row))
@@ -661,7 +690,7 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
     elementbound = Symbol[]
     boundindex = Dict{Tuple{Symbol,String},Int}()
     bound_element(kind, col) = get!(boundindex, (kind, col)) do
-        haskey(colindex, col) || error("$path: unknown column $col in a random bound")
+        haskey(colindex, col) || error("$(at()): unknown column $col in a random bound")
         push!(elementnames, (kind === :lb ? "LO" : "UP", col))
         push!(elementperiod, colstage[colindex[col]])
         push!(elementbound, kind)
@@ -673,7 +702,8 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
     given = Dict{Int,Float64}[]                     # per scenario: element => value
     scenarioindex = Dict{String,Int}()
     name, section = "", ""
-    for (header, f) in smps_lines(path)
+    for (header, f, linenumber) in smps_lines(path; format)
+        lineno[] = linenumber
         if header
             section = uppercase(f[1])
             section == "SCEN" && (section = "SCENARIOS")
@@ -682,26 +712,26 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
                 name = join(f[2:end], " ")
             elseif section == "SCENARIOS"
                 kind = length(f) > 1 ? uppercase(f[2]) : "DISCRETE"
-                kind == "DISCRETE" || error("$path: SCENARIOS $kind is not supported, only DISCRETE")
+                kind == "DISCRETE" || error("$(at()): SCENARIOS $kind is not supported, only DISCRETE")
                 word = length(f) > 2 ? uppercase(f[3]) : "REPLACE"
                 word == "REPLACE" ||
-                    error("$path: SCENARIOS $word is not supported: scenarios replace the values")
+                    error("$(at()): SCENARIOS $word is not supported: scenarios replace the values")
             elseif section in ("INDEP", "BLOCKS")
-                error("$path: $section in $(length(periods)) periods is not supported, only SCENARIOS")
+                error("$(at()): $section in $(length(periods)) periods is not supported, only SCENARIOS")
             elseif section != "ENDATA"
-                error("$path: section $section is not supported")
+                error("$(at()): section $section is not supported")
             end
             continue
         end
-        section == "SCENARIOS" || error("$path: data outside a SCENARIOS section: $(join(f, ' '))")
+        section == "SCENARIOS" || error("$(at()): data outside a SCENARIOS section: $(join(f, ' '))")
         if f[1] == "SC"
-            length(f) >= 5 || error("$path: incomplete SC line $(join(f, ' ')): a scenario needs " *
+            length(f) >= 5 || error("$(at()): incomplete SC line $(join(f, ' ')): a scenario needs " *
                                     "a name, a parent, a probability and a period")
             scenario, parent, period = f[2], strip(f[3], '\''), strip(f[5], '\'')
-            haskey(scenarioindex, scenario) && error("$path: scenario $scenario given twice")
+            haskey(scenarioindex, scenario) && error("$(at()): scenario $scenario given twice")
             parent == "ROOT" || haskey(scenarioindex, parent) ||
-                error("$path: scenario $scenario branches from $parent, not given before it")
-            haskey(periodindex, period) || error("$path: unknown period $period of scenario $scenario")
+                error("$(at()): scenario $scenario branches from $parent, not given before it")
+            haskey(periodindex, period) || error("$(at()): unknown period $period of scenario $scenario")
             push!(names, scenario)
             push!(parents, parent)
             push!(branch, periodindex[period])
@@ -710,18 +740,18 @@ function read_tree(path::AbstractString, cor, tim, probability_sums::Symbol)
             push!(given, Dict{Int,Float64}())
             scenarioindex[scenario] = length(names)
         else
-            isempty(names) && error("$path: an entry before the first SC line")
+            isempty(names) && error("$(at()): an entry before the first SC line")
             s = length(names)
             changes = if is_bound_line(f, boundnames)
-                kinds, col, value = bound_line(path, f)
+                kinds, col, value = bound_line(at(), f)
                 [(bound_element(kind, col), value) for kind in kinds]
             else
-                length(f) in (3, 5) || error("$path: malformed line $(join(f, ' '))")
+                length(f) in (3, 5) || error("$(at()): malformed line $(join(f, ' '))")
                 [(element(f[1], f[k]), number(f[k+1])) for k in 2:2:(length(f) - 1)]
             end
             for (e, value) in changes
                 elementperiod[e] >= branch[s] ||
-                    error("$path: scenario $(names[s]) branches in period $(periods[branch[s]]), but " *
+                    error("$(at()): scenario $(names[s]) branches in period $(periods[branch[s]]), but " *
                           "changes $(join(elementnames[e], ' ')), of period $(periods[elementperiod[e]])")
                 given[s][e] = value
             end

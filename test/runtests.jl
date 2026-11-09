@@ -1,4 +1,5 @@
 using SMPSFormat
+using CodecZlib: GzipCompressor, GzipDecompressor
 using Distributions: Normal, Uniform, Gamma, Beta, LogNormal
 using HiGHS
 using JuMP
@@ -686,6 +687,70 @@ end
                                                     joinpath(DATA, "fxm-3-6.sto"); probability_sums = :as_written)
         back = @test_logs (:warn,) (:warn,) stagewise_round_trip(fxm; probability_sums = :as_written)
         @test stagewise_scenarios(back) == stagewise_scenarios(fxm)
+    end
+
+    @testset "Errors name the file and the line" begin
+        message(f) = try f(); "" catch e; sprint(showerror, e) end
+        # line 5 of the stoch file: a row the core file does not have
+        stoch = "STOCH         TOY\nINDEP         DISCRETE\n    RHS       DEM1      4.0            PERIOD2   0.5\n" *
+                "* a comment\n    RHS       NONE      6.0            PERIOD2   0.5\nENDATA\n"
+        @test occursin(r"toy\.sto:5: unknown row NONE", message(() -> read_smps(instance(stoch))))
+        # line 14 of the core file (after two comments and a blank line): an unknown row in a column
+        core = replace(TOY_CORE, "    X2        COST      3.0" => "    X2        NONE      3.0")
+        @test occursin(r"toy\.cor:14: unknown row NONE", message(() ->
+            read_smps(instance("STOCH         TOY\nENDATA\n"; core = core))))
+        # line 4 of the time file: the first column of the second period unknown
+        time = replace(TOY_TIME, "    Y1        DEM1" => "    NONE      DEM1")
+        @test occursin(r"toy\.tim:4: unknown column NONE", message(() ->
+            read_smps(instance("STOCH         TOY\nENDATA\n"; time = time))))
+        # a tree: line 4, data of a period before the scenario branches
+        tree = "STOCH         TOY\nSCENARIOS     DISCRETE\n SC A         ROOT      1.0            PERIOD3\n" *
+               "    RHS       DEM1      5.0\nENDATA\n"
+        @test occursin(r"toy\.sto:4: scenario A branches", message(() -> read_smps(instance(tree; time = THREE))))
+    end
+
+    @testset "Files read through gzip" begin
+        prefix = instance("STOCH         TOY\nINDEP         DISCRETE\n" *
+                          "    RHS       DEM1      4.0            PERIOD2   0.5\n" *
+                          "    RHS       DEM1      6.0            PERIOD2   0.5\nENDATA\n")
+        plain = read_smps(prefix)
+        for ext in (".cor", ".tim", ".sto")                # all three compressed, the plain ones removed
+            write(prefix * ext * ".gz", transcode(GzipCompressor, read(prefix * ext)))
+            rm(prefix * ext)
+        end
+        @test same_problem(read_smps(prefix), plain)
+        @test same_problem(read_smps(prefix * ".cor.gz", prefix * ".tim.gz", prefix * ".sto.gz"), plain)
+        write(prefix * ".tim", transcode(GzipDecompressor, read(prefix * ".tim.gz")))   # some plain
+        rm(prefix * ".tim.gz")
+        @test same_problem(read_smps(prefix), plain)
+    end
+
+    @testset "Fixed MPS: names with blanks" begin
+        # the fields in the columns of fixed MPS: 2-3, 5-12, 15-22, 25-36, 40-47, 50-61
+        line(f1, f2, f3 = "", f4 = "", f5 = "", f6 = "") =
+            " " * rpad(f1, 2) * " " * rpad(f2, 8) * "  " * rpad(f3, 8) * "  " * lpad(f4, 12) * "   " *
+            rpad(f5, 8) * "  " * lpad(f6, 12)
+        core = join(["NAME          SPACES", "ROWS", " N  COST", " L  CAP A", " G  DEM 1", "COLUMNS",
+                     line("", "X 1", "COST", "2.0", "CAP A", "1.0"), line("", "X 1", "DEM 1", "1.0"),
+                     line("", "Y 2", "COST", "5.0", "DEM 1", "1.0"), "RHS",
+                     line("", "RHS", "CAP A", "10.0"), "ENDATA"], "\n") * "\n"
+        time = join(["TIME          SPACES", "PERIODS", line("", "X 1", "CAP A", "", "PERIOD1"),
+                     line("", "Y 2", "DEM 1", "", "PERIOD2"), "ENDATA"], "\n") * "\n"
+        stoch = join(["STOCH         SPACES", "INDEP         DISCRETE",
+                      line("", "RHS", "DEM 1", "4.0", "PERIOD2", "0.5"),
+                      line("", "RHS", "DEM 1", "6.0", "PERIOD2", "0.5"), "ENDATA"], "\n") * "\n"
+        smps = read_smps(instance(stoch; core = core, time = time); format = :fixed)
+        @test smps.columns1 == ["X 1"] && smps.columns2 == ["Y 2"] && smps.rows2 == ["DEM 1"]
+        @test smps.names == [("RHS", "DEM 1")] && support_size(smps.law) == 2
+        model, _, _ = extensive_form(smps, enumerate_scenarios(smps.law)...; optimizer = HiGHS.Optimizer)
+        set_silent(model)
+        optimize!(model)
+        @test objective_value(model) ≈ 12.0                       # X 1 = 6, Y 2 = 0 or 2
+        @test_throws ErrorException write_smps(joinpath(mktempdir(), "spaces"), smps)
+        # SMI's files in fixed format: the period of an SC line starts in column 39
+        tree = read_smps(joinpath(DATA, "KandW3R"); format = :fixed)
+        @test same_tree(tree, read_smps(joinpath(DATA, "KandW3R")))
+        @test_throws ErrorException read_smps(instance(stoch; core = core, time = time); format = :other)
     end
 
     @testset "KandW3R: three periods, nine scenarios" begin

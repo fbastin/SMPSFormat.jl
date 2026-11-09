@@ -63,7 +63,12 @@ tree = sample_tree(rng, smps, 100)            # or with 100 scenarios drawn
   mistake, problem names that differ between the three files (a warning), probabilities rounded
   to the digits written (normalized; see `probability_sums`), time and stoch files whose first
   section is `NAME` (as some of SMI's), comment lines with a hash in the first column (as
-  CoinMpsIO reads them).
+  CoinMpsIO reads them), files compressed with gzip (`.gz`).
+- **Fixed MPS**, with `format = :fixed`: the fields in the columns of fixed MPS, so that names may
+  contain blanks; tolerant of a field shifted by a column, as in SMI's `SC` lines. Only for files
+  that are in fixed format: a compact layout (as SMI's `Asset.cor`) is read in free format, the
+  default, which reads most fixed files too.
+- **Errors** name the file and the line read.
 
 Not yet: `SCENARIOS` mixed with `INDEP` or `BLOCKS` in more than two periods, `NODES`, `DISTRIB`,
 `MVNORMAL`, `LINTRAN`, chance constraints, simple recourse, random ranges, random bounds in
@@ -75,7 +80,8 @@ are refused with an error.
 `write_smps` writes a two-stage problem (its law, or given scenarios), a tree (`SCENARIOS`, each
 scenario branching from the first that shares its last common node), or a law by period (`INDEP`
 and `BLOCKS`, each line in the period it is revealed in), in free MPS with the columns and rows
-in the order of their periods; `read_smps` reads them back into the same problem. A tree's nodes
+in the order of their periods (a name with a blank is refused); `read_smps` reads them back into
+the same problem. A tree's nodes
 are numbered scenario by scenario, whether it is read or built, so that a tree written and read
 back has the same nodes.
 
