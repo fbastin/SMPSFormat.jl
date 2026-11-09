@@ -1,0 +1,49 @@
+name: Validation
+# The instances of validation/instances.toml read, solved and compared with their published
+# optimal values: the small ones on each change, larger ones on demand.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      size:
+        description: 'The largest instances run'
+        type: choice
+        options: [small, medium, large, huge]
+        default: small
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Cache the test collections
+        uses: actions/cache@v4
+        with:
+          path: validation/data
+          key: validation-data-${{ hashFiles('validation/instances.toml') }}
+          restore-keys: validation-data-
+      - name: Install the dependencies of the validation
+        run: julia --project=validation -e 'using Pkg; Pkg.develop(PackageSpec(path = pwd())); Pkg.instantiate()'
+      - name: Validate
+        run: julia --project=validation validation/validate.jl --size ${{ inputs.size || 'small' }} --output results.md
+      - name: Summary
+        if: always()
+        run: test -f results.md && cat results.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-results
+          path: results.md
+          if-no-files-found: ignore

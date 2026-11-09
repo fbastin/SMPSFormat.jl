@@ -1,1 +1,4 @@
 Manifest.toml
+validation/data/
+docs/build/
+docs/src/results.md

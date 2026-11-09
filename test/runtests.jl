@@ -1,4 +1,5 @@
 using SMPSFormat
+using Aqua
 using CodecZlib: GzipCompressor, GzipDecompressor
 using Distributions: Normal, Uniform, Gamma, Beta, LogNormal
 using HiGHS
@@ -725,6 +726,20 @@ end
         @test same_problem(read_smps(prefix), plain)
     end
 
+    @testset "Lines ending with a carriage return" begin
+        # files written on Windows: each line ends with CR LF
+        dir = mktempdir()
+        for name in ("lands", "KandW3R"), ext in (".cor", ".tim", ".sto", ".time", ".stoch")
+            file = joinpath(DATA, name * ext)
+            isfile(file) && write(joinpath(dir, name * ext), replace(read(file, String), r"\r?\n" => "\r\n"))
+        end
+        lands = read_smps(joinpath(DATA, "lands"))
+        @test same_problem(read_smps(joinpath(dir, "lands")), lands)
+        tree = read_smps(joinpath(DATA, "KandW3R"))
+        @test same_tree(read_smps(joinpath(dir, "KandW3R")), tree)
+        @test same_tree(read_smps(joinpath(dir, "KandW3R"); format = :fixed), tree)
+    end
+
     @testset "Fixed MPS: names with blanks" begin
         # the fields in the columns of fixed MPS: 2-3, 5-12, 15-22, 25-36, 40-47, 50-61
         line(f1, f2, f3 = "", f4 = "", f5 = "", f6 = "") =
@@ -839,5 +854,9 @@ end
         optimize!(model)
         @test objective_sense(model) == MOI.MAX_SENSE
         @test objective_value(model) ≈ 10.0 && value(x[1]) ≈ 5.0
+    end
+
+    @testset "Code quality (Aqua)" begin
+        Aqua.test_all(SMPSFormat)
     end
 end

@@ -1,6 +1,6 @@
 name = "SMPSFormat"
 uuid = "f6988a6b-ec68-403b-9b1e-2aef3c48f115"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Fabian Bastin"]
 
 [deps]
@@ -17,19 +17,24 @@ JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 SMPSFormatJuMPExt = "JuMP"
 
 [compat]
+Aqua = "0.8"
 CodecZlib = "0.7"
 Distributions = "0.25"
+HiGHS = "1"
 JuMP = "1"
 Printf = "1"
 Random = "1"
 SparseArrays = "1"
+Statistics = "1"
+Test = "1"
 julia = "1.10"
 
 [extras]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["HiGHS", "JuMP", "Statistics", "Test"]
+test = ["Aqua", "HiGHS", "JuMP", "Statistics", "Test"]

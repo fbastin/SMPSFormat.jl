@@ -1,0 +1,413 @@
+# The instances of the validation and their published optimal values.
+#
+# An archive is downloaded at a fixed commit and checked by the git tree hash of its content
+# (`Tar.tree_hash`), which does not depend on how GitHub compresses it. A family gives the files
+# of its instances, `{n}` replaced by each instance's `n`; an instance gives its published optimal
+# value, `value`, as printed by its reference, or, for an integer program whose optimum is not
+# known, the published bounds `lower` and `upper`. The tolerance is half a unit of the last digit
+# printed (of the sixth significant digit for a reference that rounds to six), plus 1e-9 of the
+# value for the accuracy of the solve. The reference is the
+# collection's own value when there is one; when it differs from ours and another published value,
+# computed on the same files, agrees with ours, that one is the reference, and `note` gives the
+# collection's. `probability_sums` is the option of `read_smps`: probabilities written with a few
+# digits are kept as written where the published values were computed so. `size` sorts the
+# instances by the time HiGHS takes on their deterministic equivalent: `small` (seconds, run by
+# the continuous integration), `medium` (minutes), `large` (more, and a few gigabytes), `huge`
+# (over ten million nonzeros: more memory than most computers have). `known`
+# documents a difference that remains, and what is known of its cause: the instance is then
+# expected to differ.
+
+[archive.splib]
+url = "https://codeload.github.com/vitaut-archive/splib/tar.gz/2578558868ee62451117dbd0ee03250cc3203c3b"
+root = "splib-2578558868ee62451117dbd0ee03250cc3203c3b"
+tree_hash = "8b7b4404121518f4e31b61d3b82378320eea1844"
+description = "SPLIB, Victor Zverovich's collection of stochastic programming test problems (https://github.com/vitaut-archive/splib)"
+
+[archive.coin]
+url = "https://codeload.github.com/coin-or-tools/Data-Stochastic/tar.gz/097e43a14777e8f13706a44088e7b495d6258e34"
+root = "Data-Stochastic-097e43a14777e8f13706a44088e7b495d6258e34"
+tree_hash = "bc32d62e8c8bd6eb6a88c395168b97f3c868be93"
+description = "COIN-OR's stochastic test data, release 1.1.7 (https://github.com/coin-or-tools/Data-Stochastic)"
+
+[reference.posts]
+cite = "Holmes, POSTS, a portable stochastic programming test set (1995): the file posts/Post_Results of SPLIB"
+
+[reference.felt]
+cite = "Ariyawansa and Felt, On a new collection of stochastic linear programming test problems (INFORMS Journal on Computing, 2004): the solutions of the test set in SPLIB's slptestset (solution.txt, solutions_cpa0.1, solutions_3stage)"
+
+[reference.zverovich]
+cite = "Zverovich, Modelling and solution methods for stochastic optimisation (PhD thesis, Brunel University, 2011), Table 4.3, rounded to six significant digits"
+significant = 6
+
+[reference.siplib]
+cite = "Ahmed et al., SIPLIB, a stochastic integer programming test problem library (https://www2.isye.gatech.edu/~sahmed/siplib/, 2015): the optimal values (SSLP, SIZES) or the best bounds (DCAP, SEMI) of its pages"
+
+[reference.kim]
+cite = "Kim and Dandurand, Scalable branching on dual decomposition of stochastic mixed-integer programming problems (Mathematical Programming Computation, 2022), Table 2: the bounds of the method CS+DW, optimal within 0.01%"
+
+[reference.cirrelt]
+cite = "Zehtabian and Bastin, Penalty parameter update strategies in progressive hedging algorithm (CIRRELT-2016-12), Table 2"
+
+# POSTS
+
+[[family]]
+name = "pltexpA{n}"
+archive = "splib"
+files = ["posts/pltexp/pltexpa-{t}.cor", "posts/pltexp/pltexpa-{t}.tim", "posts/pltexp/pltexpa-{t}-{s}.sto"]
+reference = "posts"
+probability_sums = "as_written"
+instances = [
+    { n = "2_6", t = "2", s = "6", value = "-9.479354", size = "small" },
+    { n = "2_16", t = "2", s = "16", value = "-9.663308", size = "small" },
+    { n = "3_6", t = "3", s = "6", value = "-13.969368", size = "small" },
+    { n = "3_16", t = "3", s = "16", value = "-14.267458", size = "medium" },
+    { n = "4_6", t = "4", s = "6", value = "-19.599417", size = "medium" },
+    { n = "4_16", t = "4", s = "16", value = "-18.849337", size = "large" },
+    { n = "5_6", t = "5", s = "6", value = "-23.214073", size = "large" },
+    { n = "6_6", t = "6", s = "6", value = "-28.134408", size = "huge" },
+]
+
+[[family]]
+name = "pltexpB{n}"
+archive = "splib"
+files = ["posts/pltexp/pltexpa-{n}.cor", "posts/pltexp/pltexpa-{n}.tim", "posts/pltexp/pltexpb-{n}-6.sto"]
+reference = "posts"
+probability_sums = "as_written"
+instances = [
+    { n = "3", value = "-13.643226", size = "small" },
+    { n = "4", value = "-17.928191", size = "small" },
+    { n = "5", value = "-23.846166", size = "small", known = "The cause is not known: the same files, read the same way, give pltexpB3 and pltexpB4 to the digits published; with the probabilities normalized, -23.839595." },
+]
+
+[[family]]
+name = "fxm{n}"
+archive = "splib"
+files = ["posts/fxm/fxm.cor", "posts/fxm/fxm-{t}.tim", "posts/fxm/fxm-{t}-{s}.sto"]
+reference = "posts"
+probability_sums = "as_written"
+instances = [
+    { n = "2.6", t = "2", s = "6", value = "18417.065572", reference = "felt", size = "small", note = "Post_Results gives 18416.686; Zverovich, 18417.1." },
+    { n = "2.16", t = "2", s = "16", value = "18416.759028", reference = "felt", size = "small", note = "Post_Results gives 18416.655; Zverovich, 18416.8." },
+    { n = "3.6", t = "3", s = "6", value = "18615.932", size = "small", known = "Post_Results is 0.104 lower, as for fxm2.16, whose value computed by Felt on the same files agrees with ours (and Zverovich's, to six digits): Post_Results was probably computed on another version of the files." },
+    { n = "3.16", t = "3", s = "16", value = "18438.891", size = "medium", known = "Post_Results is 0.104 lower, as for fxm2.16, whose value computed by Felt on the same files agrees with ours (and Zverovich's, to six digits): Post_Results was probably computed on another version of the files." },
+    { n = "4.6", t = "4", s = "6", value = "18616.224", size = "medium", known = "Post_Results is 0.104 lower, as for fxm2.16, whose value computed by Felt on the same files agrees with ours (and Zverovich's, to six digits): Post_Results was probably computed on another version of the files." },
+    { n = "4.16", t = "4", s = "16", value = "18438.891", size = "large", known = "Post_Results is 0.104 lower, as for fxm2.16, whose value computed by Felt on the same files agrees with ours (and Zverovich's, to six digits): Post_Results was probably computed on another version of the files." },
+]
+
+[[family]]
+name = "stormG2.{n}"
+archive = "splib"
+files = ["posts/storm/stormg2.cor", "posts/storm/stormg2.tim", "posts/storm/stormg2-{n}.sto"]
+reference = "posts"
+instances = [
+    { n = "8", value = "15535200", reference = "zverovich", size = "small", note = "Post_Results gives 15535231.897, 3.8 lower; HiGHS gives the same value as here with tighter tolerances, by interior points and without scaling. The stoch file is not that of the other storm instances (no problem name)." },
+    { n = "27", value = "15508982.306", size = "small" },
+    { n = "125", value = "15512090.180", size = "medium", known = "Post_Results' value is 1.005 lower; HiGHS gives 15512091.184793 by the simplex method, with tighter tolerances, and by interior points, as it gives stormG2.8 a value 3.8 above Post_Results'." },
+    { n = "1000", value = "15802589.698", size = "large" },
+]
+
+[[family]]
+name = "sgpf5y{n}"
+archive = "splib"
+files = ["posts/sg/sgpf5y-{n}.cor", "posts/sg/sgpf5y-{n}.tim", "posts/sg/sgpf5y-{n}.sto"]
+reference = "posts"
+instances = [
+    { n = "3", value = "-3027.706", size = "small", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
+    { n = "4", value = "-4031.3", reference = "cirrelt", size = "small", note = "Post_Results gives -4031.391." },
+    { n = "5", value = "-5201.282", size = "medium", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
+    { n = "6", value = "-6403.3", size = "large", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
+]
+
+[[family]]
+name = "sgpf3y{n}"
+archive = "splib"
+files = ["slptestset/sg/sgpf3y-{n}.cor", "slptestset/sg/sgpf3y-{n}.tim", "slptestset/sg/sgpf3y-{n}.sto"]
+reference = "posts"
+# sgpf3y4 is left out: SPLIB has no core file for it.
+instances = [
+    { n = "3", value = "-2967.917", size = "small", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
+    { n = "5", value = "-5172.165", size = "medium", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
+    { n = "6", value = "-6463.323", size = "large", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
+]
+
+# Felt's test set
+
+[[family]]
+name = "airl-{n}"
+archive = "splib"
+files = ["slptestset/airlift/old/airl.cor", "slptestset/airlift/old/airl.tim", "slptestset/airlift/old/{s}.sto"]
+instances = [
+    { n = "first", s = "airl-first", value = "249101.672072", reference = "felt", size = "small" },
+    { n = "second", s = "airl-second", value = "269665.498390", reference = "felt", size = "small" },
+    { n = "randgen", s = "randgen", value = "250262", reference = "zverovich", size = "small", probability_sums = "as_written" },
+]
+
+[[family]]
+name = "assets-{n}"
+archive = "splib"
+files = ["slptestset/assets/assets.cor", "slptestset/assets/assets.tim", "slptestset/assets/assets-{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "small", value = "-723.839", size = "small", note = "Felt's solution.txt gives -720.472240." },
+    { n = "large", value = "-695.963", size = "large", note = "Felt's solution.txt gives -696.093189." },
+]
+
+[[family]]
+name = "4node-{n}"
+archive = "splib"
+files = ["slptestset/cargo/4node.cor", "slptestset/cargo/4node.tim", "slptestset/cargo/4node-{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "1", value = "413.388", size = "small" },
+    { n = "2", value = "414.013", size = "small" },
+    { n = "4", value = "416.513", size = "small" },
+    { n = "8", value = "418.513", size = "small" },
+    { n = "16", value = "423.013", size = "small" },
+    { n = "32", value = "423.013", size = "small" },
+    { n = "64", value = "423.013", size = "small" },
+    { n = "128", value = "423.013", size = "medium" },
+    { n = "256", value = "425.375", size = "medium" },
+    { n = "512", value = "429.963", size = "medium" },
+    { n = "1024", value = "434.112", size = "medium" },
+    { n = "2048", value = "441.738", size = "large" },
+    { n = "4096", value = "446.856", size = "large" },
+    { n = "8192", value = "446.856", size = "large" },
+    { n = "16384", value = "446.856", size = "huge" },
+    { n = "32768", value = "446.856", size = "huge" },
+]
+
+[[family]]
+name = "4node-base-{n}"
+archive = "splib"
+files = ["slptestset/cargo/4node-base.cor", "slptestset/cargo/4node.tim", "slptestset/cargo/4node-{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "1", value = "413.388", size = "small" },
+    { n = "2", value = "414.013", size = "small" },
+    { n = "4", value = "414.388", size = "small" },
+    { n = "8", value = "414.688", size = "small" },
+    { n = "16", value = "414.688", size = "small" },
+    { n = "32", value = "416.6", size = "small" },
+    { n = "64", value = "416.6", size = "small" },
+    { n = "128", value = "416.6", size = "medium" },
+    { n = "256", value = "417.162", size = "medium" },
+    { n = "512", value = "420.293", size = "medium" },
+    { n = "1024", value = "423.05", size = "medium" },
+    { n = "2048", value = "423.763", size = "large" },
+    { n = "4096", value = "424.753", size = "large" },
+    { n = "8192", value = "424.775", size = "large" },
+    { n = "16384", value = "424.775", size = "huge" },
+    { n = "32768", value = "424.775", size = "huge" },
+]
+
+[[family]]
+name = "4node-old"
+archive = "splib"
+files = ["slptestset/cargo/4node.cor", "slptestset/cargo/4node.tim", "slptestset/cargo/4node-old-16.sto"]
+reference = "felt"
+instances = [{ n = "", value = "83094.075275", size = "small" }]
+
+[[family]]
+name = "chem{n}"
+archive = "splib"
+files = ["slptestset/chem/chem{n}.cor", "slptestset/chem/chem.tim", "slptestset/chem/chem{n}.sto"]
+instances = [
+    { n = "", value = "-13009.166667", reference = "felt", size = "small" },
+    { n = "-base", value = "-13009.2", reference = "zverovich", size = "small" },
+]
+
+[[family]]
+name = "lands{n}"
+archive = "splib"
+files = ["slptestset/electric/lands.cor", "slptestset/electric/lands.tim", "slptestset/electric/lands{n}.sto"]
+instances = [
+    { n = "", value = "381.853333", reference = "felt", size = "small" },
+    { n = "-blocks", value = "381.853", reference = "zverovich", size = "small" },
+]
+
+[[family]]
+name = "lands3-{n}"
+archive = "splib"
+files = ["slptestset/electric_3stage/lands.cor", "slptestset/electric_3stage/lands.tim", "slptestset/electric_3stage/lands-{n}.sto"]
+reference = "felt"
+instances = [
+    { n = "indep", value = "719.2066666667", size = "small" },
+    { n = "dep", value = "722.5836666667", size = "small" },
+]
+
+[[family]]
+name = "env-{n}"
+archive = "splib"
+files = ["slptestset/environ/env.cor", "slptestset/environ/env.tim", "slptestset/environ/env-{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "aggr", value = "20478.7", size = "small" },
+    { n = "first", value = "19777.4", size = "small" },
+    { n = "loose", value = "19777.4", size = "small" },
+    { n = "15", value = "22265.3", size = "small" },
+    { n = "1200", value = "22428.9", size = "medium" },
+    { n = "1875", value = "22447.1", size = "medium" },
+    { n = "3780", value = "22441", size = "medium" },
+    { n = "5292", value = "22438.4", size = "medium" },
+    { n = "8232", value = "22439.1", size = "large" },
+    { n = "32928", value = "22439.1", size = "large" },
+]
+
+[[family]]
+name = "env-diss-{n}"
+archive = "splib"
+files = ["slptestset/environ/env-diss.cor", "slptestset/environ/env.tim", "slptestset/environ/env-{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "aggr", value = "15963.9", size = "small" },
+    { n = "first", value = "14794.6", size = "small" },
+    { n = "loose", value = "14794.6", size = "small" },
+    { n = "15", value = "20773.9", size = "small" },
+    { n = "1200", value = "20808.6", size = "medium" },
+    { n = "1875", value = "20809.3", size = "medium" },
+    { n = "3780", value = "20794.7", size = "medium" },
+    { n = "5292", value = "20788.6", size = "medium" },
+    { n = "8232", value = "20799.4", size = "large" },
+    { n = "32928", value = "20799.4", size = "large" },
+]
+
+[[family]]
+name = "phone{n}"
+archive = "splib"
+files = ["slptestset/phone/phone.cor", "slptestset/phone/phone.tim", "slptestset/phone/phone{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "1", value = "36.9", size = "small" },
+    { n = "", value = "36.9", size = "huge" },
+]
+
+[[family]]
+name = "stocfor{n}"
+archive = "splib"
+files = ["slptestset/stocfor{n}/{d}stocfor{n}.cor", "slptestset/stocfor{n}/{d}stocfor{n}.tim", "slptestset/stocfor{n}/{d}stocfor{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "1", d = "old/", value = "-41132", size = "small" },
+    { n = "2", d = "", value = "-39772.4", size = "small" },
+]
+
+# GENSLP and SAPHIR
+
+[[family]]
+name = "rand{n}"
+archive = "splib"
+files = ["rand/rand{r}.cor", "rand/rand{r}.tim", "rand/rand{r}-{s}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "0-2000", r = "0", s = "2000", value = "162.146", size = "large" },
+    { n = "0-4000", r = "0", s = "4000", value = "199.032", size = "large" },
+    { n = "0-6000", r = "0", s = "6000", value = "140.275", size = "large" },
+    { n = "0-8000", r = "0", s = "8000", value = "170.318", size = "large" },
+    { n = "0-10000", r = "0", s = "10000", value = "139.129", size = "large" },
+    { n = "1-2000", r = "1", s = "2000", value = "244.159", size = "large" },
+    { n = "1-4000", r = "1", s = "4000", value = "259.346", size = "large" },
+    { n = "1-6000", r = "1", s = "6000", value = "297.563", size = "large" },
+    { n = "1-8000", r = "1", s = "8000", value = "262.451", size = "huge" },
+    { n = "1-10000", r = "1", s = "10000", value = "298.638", size = "huge" },
+    { n = "2-2000", r = "2", s = "2000", value = "209.151", size = "large" },
+    { n = "2-4000", r = "2", s = "4000", value = "218.247", size = "huge" },
+    { n = "2-6000", r = "2", s = "6000", value = "239.721", size = "huge" },
+    { n = "2-8000", r = "2", s = "8000", value = "239.158", size = "huge" },
+    { n = "2-10000", r = "2", s = "10000", value = "231.706", size = "huge" },
+]
+
+[[family]]
+name = "saphir-{n}"
+archive = "splib"
+files = ["saphir/saphir-{n}.cor", "saphir/saphir-{n}.tim", "saphir/saphir-{n}.sto"]
+reference = "zverovich"
+instances = [
+    { n = "50", value = "129505000", size = "large" },
+    { n = "100", value = "129058000", size = "large" },
+    { n = "200", value = "141473000", size = "large" },
+    { n = "500", value = "137871000", size = "huge" },
+    { n = "1000", value = "133036000", size = "huge" },
+]
+
+# SIPLIB
+
+[[family]]
+name = "sslp_{n}"
+archive = "splib"
+files = ["siplib/sslp/sslp_{m}-{s}.cor", "siplib/sslp/sslp_{m}-{s}.tim", "siplib/sslp/sslp_{m}-{s}.sto"]
+reference = "siplib"
+instances = [
+    { n = "5_25_50", m = "5_25", s = "50", value = "-121.600", size = "small" },
+    { n = "5_25_100", m = "5_25", s = "100", value = "-127.370", size = "medium" },
+    { n = "10_50_50", m = "10_50", s = "50", value = "-364.640", size = "large" },
+    { n = "10_50_100", m = "10_50", s = "100", value = "-354.190", size = "large" },
+    { n = "10_50_500", m = "10_50", s = "500", value = "-349.136", size = "large" },
+    { n = "10_50_1000", m = "10_50", s = "1000", value = "-351.711", size = "large" },
+    { n = "10_50_2000", m = "10_50", s = "2000", value = "-347.262", size = "large" },
+    { n = "15_45_5", m = "15_45", s = "5", value = "-262.400", size = "large" },
+    { n = "15_45_10", m = "15_45", s = "10", value = "-260.500", size = "large" },
+    { n = "15_45_15", m = "15_45", s = "15", value = "-253.602", size = "large" },
+]
+
+# SIPLIB gives for DCAP the bounds of the DBB method of Ahmed, Tawarmalani and Sahinidis (2004).
+# In 200 and 500 scenarios, whose probabilities are exact, its lower bound is above the optimal
+# value that Kim and Dandurand prove on four of the five instances they solve, and the solve here
+# finds solutions of their values below SIPLIB's lower bounds (dcap233_200, dcap243_200,
+# dcap243_500): their values are the reference; where they prove no optimum, the lower bound is
+# their best one, the upper bound SIPLIB's. In 300 scenarios, whose probabilities are written
+# 0.003333, SIPLIB's bounds agree with the optimum of dcap243_300, Kim and Dandurand's value does
+# not, with the probabilities normalized or as written: SIPLIB's bounds are the reference.
+[[family]]
+name = "dcap{n}"
+archive = "splib"
+files = ["siplib/dcap{d}/dcap{d}-{s}.cor", "siplib/dcap{d}/dcap{d}-{s}.tim", "siplib/dcap{d}/dcap{d}-{s}.sto"]
+reference = "kim"
+instances = [
+    { n = "233_200", d = "233", s = "200", lower = "1834.55", upper = "1834.57", size = "medium", note = "SIPLIB: [1834.868, 1834.893]." },
+    { n = "233_300", d = "233", s = "300", lower = "1644.342", upper = "1644.504", size = "large", reference = "siplib", note = "Kim and Dandurand: [1644.19, 1644.20]." },
+    { n = "233_500", d = "233", s = "500", lower = "1737.52", upper = "1737.54", size = "large", note = "SIPLIB: [1737.719, 1737.728]." },
+    { n = "243_200", d = "243", s = "200", lower = "2322.49", upper = "2322.49", size = "medium", note = "SIPLIB: [2322.721, 2322.721]." },
+    { n = "243_300", d = "243", s = "300", lower = "2559.297", upper = "2559.545", size = "medium", reference = "siplib", note = "Kim and Dandurand: [2559.19, 2559.19], below the optimum found here with the probabilities normalized (2559.4478) or as written (2559.2128)." },
+    { n = "243_500", d = "243", s = "500", lower = "2167.35", upper = "2167.36", size = "large", note = "SIPLIB: [2167.512, 2167.512]." },
+    { n = "332_200", d = "332", s = "200", lower = "1060.65", upper = "1060.70", size = "large", note = "SIPLIB: [1060.676, 1060.781]." },
+    { n = "332_300", d = "332", s = "300", lower = "1253.040", upper = "1253.082", size = "large", reference = "siplib", note = "Kim and Dandurand: [1252.75, 1252.75]." },
+    { n = "332_500", d = "332", s = "500", lower = "1587.09", upper = "1588.876", size = "large", note = "Kim and Dandurand's lower bound, SIPLIB's upper bound; SIPLIB: [1588.717, 1588.876]." },
+    { n = "342_200", d = "342", s = "200", lower = "1618.11", upper = "1619.654", size = "large", note = "Kim and Dandurand's lower bound, SIPLIB's upper bound; SIPLIB: [1619.531, 1619.654]." },
+    { n = "342_300", d = "342", s = "300", lower = "2067.777", upper = "2067.818", size = "large", reference = "siplib", note = "Kim and Dandurand: [2067.49, 2067.54]." },
+    { n = "342_500", d = "342", s = "500", lower = "1904.65", upper = "1904.803", size = "large", note = "Kim and Dandurand's lower bound, SIPLIB's upper bound; SIPLIB: [1904.722, 1904.803]." },
+]
+
+[[family]]
+name = "sizes{n}"
+archive = "splib"
+files = ["siplib/sizes/sizes.cor", "siplib/sizes/sizes.tim", "siplib/sizes/sizes-{n}.sto"]
+reference = "siplib"
+instances = [
+    { n = "3", value = "224434.32", size = "medium", known = "SIPLIB's value is the optimum of the deterministic equivalent distributed with the files (siplib/sizes/sizes-3.mps), whose costs, weighted by the probabilities 1/3, are rounded to two decimals (8/3 written 2.67): HiGHS gives it 224434.32. The probabilities of sizes5 and sizes10 are exact." },
+    { n = "5", value = "224486", size = "medium" },
+    { n = "10", value = "224564.3", size = "large" },
+]
+
+[[family]]
+name = "semi{n}"
+archive = "splib"
+files = ["siplib/semi/semi.cor", "siplib/semi/semi.tim", "siplib/semi/semi-2-{n}.sto"]
+reference = "siplib"
+instances = [
+    { n = "2", lower = "1457.1", upper = "1545.5", size = "large" },
+    { n = "3", lower = "1745.4", upper = "1808.1", size = "large" },
+    { n = "4", lower = "2148.4", upper = "2197.2", size = "large" },
+]
+
+# COIN-OR SMI
+
+[[family]]
+name = "{n}"
+archive = "coin"
+files = ["{n}.cor", "{n}.time", "{n}.stoch"]
+reference = "cirrelt"
+instances = [
+    { n = "KandW3R", value = "2613", size = "small" },
+    { n = "app0110R", value = "41.958", size = "small", probability_sums = "as_written" },
+    { n = "wat_10_C_32", value = "-2611.92", size = "small" },
+]
