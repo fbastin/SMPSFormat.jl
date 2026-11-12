@@ -1,6 +1,6 @@
 name = "SMPSFormat"
 uuid = "f6988a6b-ec68-403b-9b1e-2aef3c48f115"
-version = "0.7.0"
+version = "0.8.0"
 authors = ["Fabian Bastin"]
 
 [deps]

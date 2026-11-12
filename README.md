@@ -63,13 +63,15 @@ documentation](https://fbastin.github.io/SMPSFormat.jl/dev/format/).
 ## Validation
 
 The reader is checked against the optimal values published for the test collections of the
-literature: POSTS, Felt's test set, GENSLP and SAPHIR (as SPLIB distributes them), SIPLIB, and
-COIN-OR SMI's multistage instances. [`validation/validate.jl`](validation/validate.jl) downloads
+literature: POSTS, Felt's test set, GENSLP and SAPHIR, WATSON and the sampling instances of
+Linderoth, Shapiro and Wright (as SPLIB distributes them), SIPLIB, COIN-OR SMI's multistage
+instances, and Topaloglu's datasets. [`validation/validate.jl`](validation/validate.jl) downloads
 the files at fixed commits, reads each instance of
 [`validation/instances.toml`](validation/instances.toml), solves its deterministic equivalent
-with HiGHS, and compares its optimal value with the published one; the continuous integration
-runs the small instances. The [results](validation/results.md) list each instance, its
-reference, and the few differences that remain, with what is known of their causes.
+with HiGHS, and compares its optimal value with the published one; an instance with no
+published optimum, or too many scenarios, is only read. The continuous integration runs the
+small instances. The [results](validation/results.md) list each instance, its reference, and
+the few differences that remain, with what is known of their causes.
 
 ## Licence
 

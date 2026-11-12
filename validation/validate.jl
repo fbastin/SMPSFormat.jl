@@ -1,7 +1,8 @@
 """
 Validation of SMPSFormat.jl on the test collections of the literature: each instance of
 `instances.toml` is read, its deterministic equivalent solved with HiGHS, and its optimal value
-compared with the published one.
+compared with the published one. An instance with no published optimal value, or too many
+scenarios for a deterministic equivalent, is only read.
 
     julia --project=validation validation/validate.jl [options]
 
@@ -23,9 +24,11 @@ using HiGHS
 using JuMP
 using Logging
 using Printf
+using SHA
 using SMPSFormat
 using Tar
 using TOML
+using p7zip_jll
 
 const SIZES = ("small", "medium", "large", "huge")
 
@@ -56,40 +59,56 @@ function instances(config)
     for family in config["family"], instance in family["instances"]
         fill(text) = foldl((t, (k, v)) -> replace(t, "{$k}" => v), pairs(instance); init = text)
         merged = merge(family, instance)
+        value, lower, upper = (get(merged, key, nothing) for key in ("value", "lower", "upper"))
         push!(list, (name = fill(family["name"]), archive = family["archive"],
-                     files = fill.(family["files"]), reference = merged["reference"],
-                     value = get(merged, "value", nothing), lower = get(merged, "lower", nothing),
-                     upper = get(merged, "upper", nothing), size = merged["size"],
+                     files = fill.(family["files"]), reference = get(merged, "reference", ""),
+                     value, lower, upper, read_only = value === lower === upper === nothing,
+                     size = merged["size"],
                      known = get(merged, "known", nothing), note = get(merged, "note", nothing),
                      probability_sums = Symbol(get(merged, "probability_sums", "rounding"))))
     end
     return list
 end
 
-"""The directory of `archive`, downloaded and extracted in `data` if it is not there yet; its
-content checked by its git tree hash."""
+"""The directory of `archive`, downloaded and extracted in `data` if it is not there yet: a
+tarball checked by the git tree hash of its content, or zip files (`zips`, in the directory
+`url`) checked by their SHA-256, each extracted in a directory named after it."""
 function archive_root(archive, data)
     root = joinpath(data, archive["root"])
     isdir(root) && return root
     mkpath(data)
-    tarball = joinpath(data, archive["root"] * ".tar.gz")
-    println("downloading ", archive["url"])
-    Downloads.download(archive["url"], tarball)
-    hash = open(io -> Tar.tree_hash(GzipDecompressorStream(io)), tarball)
-    hash == archive["tree_hash"] ||
-        error("$(archive["url"]): the content's tree hash is $hash, not $(archive["tree_hash"])")
     staging = mktempdir(data)
-    open(io -> Tar.extract(GzipDecompressorStream(io), staging), tarball)
-    mv(joinpath(staging, archive["root"]), root)
+    if haskey(archive, "zips")
+        for zip in archive["zips"]
+            url = archive["url"] * zip["file"]
+            file = joinpath(staging, zip["file"])
+            println("downloading ", url)
+            Downloads.download(url, file)
+            hash = bytes2hex(open(sha256, file))
+            hash == zip["sha256"] || error("$url: its SHA-256 is $hash, not $(zip["sha256"])")
+            Base.run(pipeline(`$(p7zip()) x -y -o$(joinpath(staging, "content", splitext(zip["file"])[1])) $file`;
+                         stdout = devnull))
+            rm(file)
+        end
+        mv(joinpath(staging, "content"), root)
+    else
+        tarball = joinpath(staging, archive["root"] * ".tar.gz")
+        println("downloading ", archive["url"])
+        Downloads.download(archive["url"], tarball)
+        hash = open(io -> Tar.tree_hash(GzipDecompressorStream(io)), tarball)
+        hash == archive["tree_hash"] ||
+            error("$(archive["url"]): the content's tree hash is $hash, not $(archive["tree_hash"])")
+        open(io -> Tar.extract(GzipDecompressorStream(io), joinpath(staging, "content")), tarball)
+        mv(joinpath(staging, "content", archive["root"]), root)
+    end
     rm(staging; recursive = true)
-    rm(tarball)
     return root
 end
 
 """The deterministic equivalent of `problem` as a JuMP model, its number of scenarios and of
-periods."""
+periods. The number of scenarios is not limited: `size` selects the instances run."""
 function deterministic_equivalent(problem::SMPSProblem)
-    (; ξ, p) = enumerate_scenarios(problem.law)
+    (; ξ, p) = enumerate_scenarios(problem.law; limit = typemax(Int))
     model, _ = extensive_form(problem, ξ, p)
     return model, length(p), 2
 end
@@ -97,29 +116,42 @@ function deterministic_equivalent(tree::SMPSTree)
     model, _ = extensive_form(tree)
     return model, length(tree.scenarios), length(tree.periods)
 end
-deterministic_equivalent(stagewise::SMPSStagewise) = deterministic_equivalent(scenario_tree(stagewise))
+deterministic_equivalent(stagewise::SMPSStagewise) =
+    deterministic_equivalent(scenario_tree(stagewise; limit = typemax(Int)))
 
-"""Half a unit of the last digit of the number `text`, or of its digit `significant` (counted
-from its first) if that one is larger."""
-function tolerance(text, significant)
+"""The number of periods and of scenarios of `problem`, without building its scenarios."""
+structure(problem::SMPSProblem) = 2, support_size(problem.law)
+structure(tree::SMPSTree) = length(tree.periods), length(tree.scenarios)
+structure(stagewise::SMPSStagewise) = length(stagewise.periods), support_size(stagewise)
+
+"""A number of scenarios, with two significant digits if it has more than seven."""
+count_text(n) = ndigits(n) <= 7 ? string(n) : replace(@sprintf("%.1e", BigFloat(n)), "e+" => "e")
+
+"""Half a unit of the last digit of the number `text`, or of the digit that `reference` vouches
+for if that one is larger: its digit `significant` (counted from the first), or its decimal
+`decimals`."""
+function tolerance(text, reference)
     m = match(r"\.(\d+)", text)
     half = 0.5 * 10.0^(-(m === nothing ? 0 : length(m[1])))
     v = abs(parse(Float64, text))
+    significant = get(reference, "significant", nothing)
     significant === nothing || v == 0 ||
         (half = max(half, 0.5 * 10.0^(floor(Int, log10(v)) - significant + 1)))
+    decimals = get(reference, "decimals", nothing)
+    decimals === nothing || (half = max(half, 0.5 * 10.0^(-decimals)))
     return half
 end
 
 """The interval of the published optimal value of `instance`: its value, or its bounds, give or
 take the tolerance of the digits printed."""
-function published(instance, significant)
+function published(instance, reference)
     if instance.value !== nothing
         v = parse(Float64, instance.value)
-        t = tolerance(instance.value, significant)
+        t = tolerance(instance.value, reference)
         return v - t, v + t
     end
-    return parse(Float64, instance.lower) - tolerance(instance.lower, significant),
-           parse(Float64, instance.upper) + tolerance(instance.upper, significant)
+    return parse(Float64, instance.lower) - tolerance(instance.lower, reference),
+           parse(Float64, instance.upper) + tolerance(instance.upper, reference)
 end
 
 """The outcome of `instance`, whose published value lies in `[lower, upper]`, given the status
@@ -141,15 +173,22 @@ end
 """Whether `result` calls for attention: a difference without a known reason, or an error."""
 failed(result) = result == "differs" || startswith(result, "error") || startswith(result, "agrees:")
 
-"""Reads and solves `instance`, the files in `root`: a named tuple of the results."""
+"""Reads and solves `instance`, the files in `root`: a named tuple of the results. An instance
+read only is not solved: its number of scenarios is that of its law."""
 function run(instance, root, reference, time_limit)
     started = time()
     warnings = IOBuffer()
-    outcome = (periods = 0, scenarios = 0, rows = 0, columns = 0, value = NaN, warnings = "")
+    outcome = (periods = 0, scenarios = "", rows = "", columns = "", value = NaN, warnings = "")
     try
         problem = with_logger(ConsoleLogger(warnings, Logging.Warn)) do
             return read_smps(joinpath.(root, instance.files)...;
                              probability_sums = instance.probability_sums)
+        end
+        logged = replace(count_warnings(String(take!(warnings))), root * "/" => "")
+        if instance.read_only
+            periods, scenarios = structure(problem)
+            return (; outcome..., periods, scenarios = count_text(scenarios), warnings = logged,
+                    result = "read", seconds = time() - started)
         end
         model, scenarios, periods = deterministic_equivalent(problem)
         mip = num_constraints(model, VariableRef, MOI.Integer) +
@@ -162,10 +201,10 @@ function run(instance, root, reference, time_limit)
         status = termination_status(model)
         value = primal_status(model) == MOI.FEASIBLE_POINT ? objective_value(model) : NaN
         bound = mip ? objective_bound(model) : NaN
-        interval = published(instance, get(reference, "significant", nothing))
-        outcome = (; periods, scenarios, rows = num_constraints(model; count_variable_in_set_constraints = false),
-                   columns = num_variables(model), value,
-                   warnings = replace(count_warnings(String(take!(warnings))), root * "/" => ""))
+        interval = published(instance, reference)
+        outcome = (; periods, scenarios = string(scenarios),
+                   rows = string(num_constraints(model; count_variable_in_set_constraints = false)),
+                   columns = string(num_variables(model)), value, warnings = logged)
         return (; outcome..., result = verdict(instance, interval, status, value, bound, mip),
                 seconds = time() - started)
     catch e
@@ -179,11 +218,12 @@ end
 count_warnings(text) = join(unique(m[1] for m in eachmatch(r"Warning: ([^\n]*)", text)), "; ")
 
 """The published value of `instance` as printed."""
-printed(instance) = instance.value !== nothing ? instance.value : "[$(instance.lower), $(instance.upper)]"
+printed(instance) = instance.read_only ? "" :
+    instance.value !== nothing ? instance.value : "[$(instance.lower), $(instance.upper)]"
 
 """The difference between `value` and the published value or interval of `instance`."""
 function difference(instance, value)
-    isfinite(value) || return ""
+    isfinite(value) && !instance.read_only || return ""
     if instance.value !== nothing
         d = value - parse(Float64, instance.value)
     else
@@ -244,7 +284,7 @@ function main(arguments)
     started = time()
     results = []
     for instance in selected
-        r = run(instance, roots[instance.archive], config["reference"][instance.reference], option.time_limit)
+        r = run(instance, roots[instance.archive], get(config["reference"], instance.reference, Dict()), option.time_limit)
         push!(results, instance => r)
         @printf("%-18s %-10s %16s %16s %8.1f s  %s\n", instance.name, instance.reference, printed(instance),
                 isfinite(r.value) ? @sprintf("%.10g", r.value) : "-", r.seconds, r.result)

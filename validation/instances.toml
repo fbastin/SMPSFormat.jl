@@ -1,11 +1,14 @@
 # The instances of the validation and their published optimal values.
 #
 # An archive is downloaded at a fixed commit and checked by the git tree hash of its content
-# (`Tar.tree_hash`), which does not depend on how GitHub compresses it. A family gives the files
+# (`Tar.tree_hash`), which does not depend on how GitHub compresses it; a collection published
+# as zip files (`zips`, in the directory `url`) is checked by their SHA-256, each extracted in a
+# directory named after it. A family gives the files
 # of its instances, `{n}` replaced by each instance's `n`; an instance gives its published optimal
 # value, `value`, as printed by its reference, or, for an integer program whose optimum is not
 # known, the published bounds `lower` and `upper`. The tolerance is half a unit of the last digit
-# printed (of the sixth significant digit for a reference that rounds to six), plus 1e-9 of the
+# printed (of the sixth significant digit for a reference that rounds to six, `significant`, of
+# the second decimal for one whose solvers agree to two decimals, `decimals`), plus 1e-9 of the
 # value for the accuracy of the solve. The reference is the
 # collection's own value when there is one; when it differs from ours and another published value,
 # computed on the same files, agrees with ours, that one is the reference, and `note` gives the
@@ -15,7 +18,10 @@
 # the continuous integration), `medium` (minutes), `large` (more, and a few gigabytes), `huge`
 # (over ten million nonzeros: more memory than most computers have). `known`
 # documents a difference that remains, and what is known of its cause: the instance is then
-# expected to differ.
+# expected to differ. An instance with neither `value` nor bounds is read only: no optimal value
+# is published for it, or its deterministic equivalent has too many scenarios to be built (up
+# to 10^204); it must be read without error, in a few seconds (`small`), and its number of
+# scenarios is that of its law.
 
 [archive.splib]
 url = "https://codeload.github.com/vitaut-archive/splib/tar.gz/2578558868ee62451117dbd0ee03250cc3203c3b"
@@ -28,6 +34,31 @@ url = "https://codeload.github.com/coin-or-tools/Data-Stochastic/tar.gz/097e43a1
 root = "Data-Stochastic-097e43a14777e8f13706a44088e7b495d6258e34"
 tree_hash = "bc32d62e8c8bd6eb6a88c395168b97f3c868be93"
 description = "COIN-OR's stochastic test data, release 1.1.7 (https://github.com/coin-or-tools/Data-Stochastic)"
+
+[archive.dsp]
+url = "https://codeload.github.com/Argonne-National-Laboratory/DSP/tar.gz/8ceedb43bd7c81aeecfe2ad26030d630ab458261"
+root = "DSP-8ceedb43bd7c81aeecfe2ad26030d630ab458261"
+tree_hash = "46a7d160aef7921b3822ea1bd84ffd35d538f16c"
+description = "DSP, the dual decomposition solver of Kim and Zavala, whose examples hold SIPLIB's SMKP instances, the same files as SIPLIB's smkp.zip (https://github.com/Argonne-National-Laboratory/DSP, branch release)"
+
+[archive.cornell]
+url = "https://people.orie.cornell.edu/huseyin/research/sp_datasets/"
+root = "cornell-sp-datasets"
+description = "Topaloglu's stochastic programming datasets, Cornell ORIE (https://people.orie.cornell.edu/huseyin/research/sp_datasets/sp_datasets.html)"
+zips = [
+    { file = "Electricity-Small.zip", sha256 = "93c522af5710b2d97a3b577fe2ae0c4bb0adc8192f84bcd0f80c04f1be208c6a" },
+    { file = "Electricity-Medium.zip", sha256 = "b7a40fb41194cb8d90693de968a70196f0a69c1b708dc1009c97e1c2b465eb00" },
+    { file = "Electricity-Large.zip", sha256 = "8e6b5a709a3507c425d2049b295b7940635d1cc677cc5bac3dbd4dd5fc36e940" },
+    { file = "Bi-Weekly-Small.zip", sha256 = "fbd05b25b25f64e1b15629f6c3050f3f65c9552c1acb904139404bfa22597192" },
+    { file = "Bi-Weekly-Medium.zip", sha256 = "35cff3483e065941d868c2494690e3cbfc650283145f5f22a8623e9e3df8b9a5" },
+    { file = "Bi-Weekly-Large.zip", sha256 = "ef00cff9231e0785896d5f7d5baf4e315cdea3485f3f38733be44ad0a632529a" },
+    { file = "Weekly-Small.zip", sha256 = "e8014d78834a6e21a6524293c9499f275cea6ac10407a1d2db567fe815a226db" },
+    { file = "Weekly-Medium.zip", sha256 = "dad5d4763cf42886d3008c15a260aba9a6c5b72ef9bc315540a889a3647c3100" },
+    { file = "Weekly-Large.zip", sha256 = "8946b6b5642c0b558bcf0d7ff177b559f71fb4d41052ab3017aef5fd2f134c06" },
+    { file = "Product-Small.zip", sha256 = "5596e02d77c6babc84db30f5addd895a95c9097d24c0ee43eefd59220ac2346a" },
+    { file = "Product-Medium.zip", sha256 = "4d537210edee391b01b2fc3152bd2e2222730272fdf9385737c348b3b80c6cc7" },
+    { file = "Product-Large.zip", sha256 = "653a1a19aada0142ad9774cb77b1e905be16e7697a0be509a71c8b62934e14fd" },
+]
 
 [reference.posts]
 cite = "Holmes, POSTS, a portable stochastic programming test set (1995): the file posts/Post_Results of SPLIB"
@@ -43,7 +74,20 @@ significant = 6
 cite = "Ahmed et al., SIPLIB, a stochastic integer programming test problem library (https://www2.isye.gatech.edu/~sahmed/siplib/, 2015): the optimal values (SSLP, SIZES) or the best bounds (DCAP, SEMI) of its pages"
 
 [reference.kim]
-cite = "Kim and Dandurand, Scalable branching on dual decomposition of stochastic mixed-integer programming problems (Mathematical Programming Computation, 2022), Table 2: the bounds of the method CS+DW, optimal within 0.01%"
+cite = "Kim and Dandurand, Scalable branching on dual decomposition of stochastic mixed-integer programming problems (Mathematical Programming Computation, 2022), Table 2 (DCAP) and Table 5 (SMKP): the bounds of the method CS+DW, optimal within 0.01%"
+
+[reference.bayraksan]
+cite = "Bayraksan and Morton, A sequential sampling procedure for stochastic programming (Operations Research, 2011), Table 2: the optimal value, the problem solved exactly"
+
+[reference.consigli]
+cite = "Consigli and Dempster, Dynamic stochastic programming for asset-liability management (Annals of Operations Research, 1998), Table 2 (independent scenarios, wati) and Table 3 (conditional scenarios, watc): the terminal wealth maximized, whose opposite the files minimize, with the digits on which their solvers agree, at least two decimals"
+decimals = 2
+
+[reference.dempster]
+cite = "Dempster and Thompson, Parallelization and aggregation of nested Benders decomposition (Annals of Operations Research, 1998), Table 3"
+
+[reference.lsw]
+cite = "Linderoth, Shapiro and Wright, The empirical behavior of sampling methods for stochastic programming (Annals of Operations Research, 2006; Optimization Technical Report 02-01, University of Wisconsin-Madison, 2002), Table 4: the estimates of the lower and upper bounds, with their 95% confidence intervals, from Latin hypercube samples of 5000 scenarios"
 
 [reference.cirrelt]
 cite = "Zehtabian and Bastin, Penalty parameter update strategies in progressive hedging algorithm (CIRRELT-2016-12), Table 2"
@@ -397,6 +441,126 @@ instances = [
     { n = "2", lower = "1457.1", upper = "1545.5", size = "large" },
     { n = "3", lower = "1745.4", upper = "1808.1", size = "large" },
     { n = "4", lower = "2148.4", upper = "2197.2", size = "large" },
+]
+
+# SIPLIB's SMKP, in DSP's copy: Kim and Dandurand solve smkp1 to smkp20 (Table 5). The costs are
+# integers and the 20 scenarios equally likely: an optimal value is a multiple of 0.05. HiGHS
+# leaves a gap of 0.5% on smkp1 after 15 minutes ([9318.75, 9362.55]): the check is then that
+# its bounds contain the published optimum.
+# smkp21 to smkp30 are left out: no optimal value is published for them (Angulo, Ahmed and Dey,
+# who generated them, give run times only).
+[[family]]
+name = "smkp{n}"
+archive = "dsp"
+files = ["examples/smps/smkp/smkp_{n}.cor", "examples/smps/smkp/smkp_{n}.tim", "examples/smps/smkp/smkp_{n}.sto"]
+reference = "kim"
+instances = [
+    { n = "1", lower = "9339.15", upper = "9339.15", size = "large" },
+    { n = "2", lower = "9001.3", upper = "9001.3", size = "large" },
+    { n = "3", lower = "8560.7", upper = "8560.7", size = "large" },
+    { n = "4", lower = "8916.9", upper = "8916.9", size = "large" },
+    { n = "5", lower = "9423", upper = "9423", size = "large" },
+    { n = "6", lower = "9143.2", upper = "9143.2", size = "large" },
+    { n = "7", lower = "9635.5", upper = "9635.5", size = "large" },
+    { n = "8", lower = "9116.7", upper = "9116.8", size = "large" },
+    { n = "9", lower = "9763.75", upper = "9763.75", size = "large" },
+    { n = "10", lower = "8793.1", upper = "8793.1", size = "large" },
+    { n = "11", lower = "9431.25", upper = "9431.25", size = "large", note = "The method BNP: [9431.25, 9431.3]." },
+    { n = "12", lower = "9499.95", upper = "9499.95", size = "large" },
+    { n = "13", lower = "9189.55", upper = "9189.55", size = "large" },
+    { n = "14", lower = "9447.1", upper = "9447.1", size = "large" },
+    { n = "15", lower = "9614.8", upper = "9614.8", size = "large", note = "The method BNP: [9614.75, 9614.8]." },
+    { n = "16", lower = "9072.85", upper = "9072.85", size = "large" },
+    { n = "17", lower = "9443.6", upper = "9443.6", size = "large", note = "The method BNP: [9443.7, 9443.7], also optimal within 0.01%." },
+    { n = "18", lower = "8830.7", upper = "8830.7", size = "large" },
+    { n = "19", lower = "9358.3", upper = "9358.3", size = "large" },
+    { n = "20", lower = "9617.85", upper = "9617.85", size = "large" },
+]
+
+# WATSON, the pension fund problems of Consigli and Dempster, in ten periods: SPLIB's wati and
+# watc are the 11 and 13 problems of their Tables 2 and 3, whose dimensions (Table 1) are those
+# of these files, but for the two largest.
+[[family]]
+name = "wati-10-{n}"
+archive = "splib"
+files = ["watson/wati-10.cor", "watson/wati-10.tim", "watson/wati-10-{n}.sto"]
+reference = "consigli"
+instances = [
+    { n = "16", value = "-2158.7519", size = "small", note = "Zehtabian and Bastin's wat10I16: -2158.75 (CIRRELT-2016-12)." },
+    { n = "32", value = "-1866.398", size = "small" },
+    { n = "64", value = "-2310.53", reference = "dempster", size = "small", note = "Consigli and Dempster give 2310.51." },
+    { n = "128", value = "-1637.8125", size = "medium" },
+    { n = "256", value = "-2000.838", size = "medium" },
+    { n = "512", value = "-1959.635", size = "medium" },
+    { n = "768", value = "-1813.105", size = "medium" },
+    { n = "1024", value = "-1926.787", size = "medium" },
+    { n = "1152", value = "-1687.92", size = "medium" },
+    { n = "1536", value = "-1790.276", size = "medium" },
+    { n = "1920", value = "-1778.954", size = "medium", known = "The root scenario of SPLIB's wati-10-1920.sto sets the right-hand side of CB11, the initial cash balance, to -500.63, against -300.63 in the 23 other WATSON files: with -300.63, the files give -1778.9548, the published value." },
+]
+
+[[family]]
+name = "watc-10-{n}"
+archive = "splib"
+files = ["watson/watc-10.cor", "watson/watc-10.tim", "watson/watc-10-{n}.sto"]
+reference = "consigli"
+instances = [
+    { n = "16", value = "-2401.875", size = "small" },
+    { n = "32", value = "-2167.624", size = "small", note = "COIN-OR's wat_10_C_32, of the same dimensions, is not the same problem: its optimum is -2611.92 (Zehtabian and Bastin's wat10C32)." },
+    { n = "64", value = "-2027.4293", size = "small", known = "SPLIB's watc-10-64.sto is the same file as wati-10-64.sto: it gives the optimum of wati-10-64." },
+    { n = "128", value = "-1879.432", size = "medium" },
+    { n = "256", value = "-1841.2985", size = "medium" },
+    { n = "512", value = "-1787.1977", size = "medium" },
+    { n = "768", value = "-1780.126", size = "medium" },
+    { n = "1024", value = "-1791.176", size = "medium" },
+    { n = "1152", value = "-1725.53", size = "medium" },
+    { n = "1536", value = "-1693.474", size = "medium" },
+    { n = "1920", value = "-1769.45", size = "medium", probability_sums = "normalize", note = "The first 1536 scenarios of the stoch file have the probability 0.000651042 (1/1536), the other 384 0.000520833 (1/1920): they sum up to 1.2. The published value is that of these probabilities normalized; all equal, they give -1762.152." },
+    { n = "2304", value = "-1664.66", size = "medium", known = "The cause is not known: the other conditional problems give their published values, but watc-10-64, whose file is that of wati-10-64, and the values of this file lie within those of watc-10-1536 and watc-10-2688." },
+    { n = "2688", value = "-1679.921", size = "medium" },
+]
+
+# Linderoth, Shapiro and Wright's sampling instances, in SPLIB's copy (wright): they publish only
+# estimates of the optimal values, from samples. gbd (646,425 scenarios) and LandS (10^6) have
+# deterministic equivalents of tens of millions of nonzeros: Bayraksan and Morton give the optimum
+# of gbd; the bounds of LandS, whose optimum is not published, are the ends of the confidence
+# intervals of the estimates. The others, 20term (2^40 scenarios), ssn (10^70) and storm (5^117),
+# are read only. LandS here is not Felt's lands: its three demands are independent, of 100 values
+# each.
+[[family]]
+name = "{n}"
+archive = "splib"
+files = ["wright/{d}/{f}.cor", "wright/{d}/{f}.tim", "wright/{d}/{f}.sto"]
+reference = "lsw"
+instances = [
+    { n = "gbd", d = "gbd", f = "gbd", value = "1655.63", reference = "bayraksan", size = "huge", note = "Linderoth, Shapiro and Wright's estimates: lower bound 1655.62 ± 0.00, upper bound 1655.628 ± 0.00." },
+    { n = "LandS", d = "lands", f = "lands", lower = "225.60", upper = "225.629", size = "huge", note = "Estimates: lower bound 225.62 ± 0.02, upper bound 225.624 ± 0.005." },
+    { n = "20term", d = "20term", f = "20", size = "small", note = "Estimates: lower bound 254298.57 ± 38.74, upper bound 254311.55 ± 5.56." },
+    { n = "ssn", d = "ssn", f = "ssn", size = "small", note = "Estimates: lower bound 9.84 ± 0.10, upper bound 9.913 ± 0.022." },
+    { n = "storm", d = "storm", f = "storm", size = "small", note = "Estimates: lower bound 15498657.8 ± 73.9, upper bound 15498739.41 ± 19.11." },
+]
+
+# Topaloglu's datasets: their demands are independent, of 10^47 to 10^204 scenarios, and the
+# values published (sp_results.pdf) are those of two approximate policies, estimated by
+# simulation within 1%: a deterministic approximation (DA) and piecewise-linear approximations of
+# the recourse function (PL). They are read only.
+[[family]]
+name = "{n}"
+archive = "cornell"
+files = ["{n}/core_nospace.mps", "{n}/time_nospace.mps", "{n}/stoch_nospace.mps"]
+instances = [
+    { n = "Electricity-Small", size = "small", note = "Policies: DA -1351.00, PL -1460.81." },
+    { n = "Electricity-Medium", size = "small", note = "Policies: DA -5695.06, PL -5916.40." },
+    { n = "Electricity-Large", size = "small", note = "Policies: DA -1722.62, PL -1846.08." },
+    { n = "Bi-Weekly-Small", size = "small", note = "Policies: DA -8071.12, PL -8579.98." },
+    { n = "Bi-Weekly-Medium", size = "small", note = "Policies: DA -701.46, PL -1481.00." },
+    { n = "Bi-Weekly-Large", size = "small", note = "Policies: DA -6353.51, PL -7259.32." },
+    { n = "Weekly-Small", size = "small", note = "Policies: DA -2806.10, PL -3672.28." },
+    { n = "Weekly-Medium", size = "small", note = "Policies: DA -500.08, PL -968.47." },
+    { n = "Weekly-Large", size = "small", note = "Policies: DA -1750.31, PL -2535.81." },
+    { n = "Product-Small", size = "small", note = "Policies: DA -17637.20, PL -18146.60." },
+    { n = "Product-Medium", size = "small", note = "Policies: DA -27837.41, PL -28479.40." },
+    { n = "Product-Large", size = "small", note = "Policies: DA -29389.04, PL -30016.40." },
 ]
 
 # COIN-OR SMI
