@@ -65,7 +65,9 @@ function instances(config)
                      value, lower, upper, read_only = value === lower === upper === nothing,
                      size = merged["size"],
                      known = get(merged, "known", nothing), note = get(merged, "note", nothing),
-                     probability_sums = Symbol(get(merged, "probability_sums", "rounding"))))
+                     probability_sums = Symbol(get(merged, "probability_sums", "rounding")),
+                     sense = haskey(merged, "sense") ? Symbol(merged["sense"]) : nothing,
+                     highs = get(merged, "highs", Dict{String, Any}())))
     end
     return list
 end
@@ -182,7 +184,7 @@ function run(instance, root, reference, time_limit)
     try
         problem = with_logger(ConsoleLogger(warnings, Logging.Warn)) do
             return read_smps(joinpath.(root, instance.files)...;
-                             probability_sums = instance.probability_sums)
+                             probability_sums = instance.probability_sums, sense = instance.sense)
         end
         logged = replace(count_warnings(String(take!(warnings))), root * "/" => "")
         if instance.read_only
@@ -197,6 +199,9 @@ function run(instance, root, reference, time_limit)
         set_silent(model)
         set_time_limit_sec(model, time_limit)
         mip && set_attribute(model, "mip_rel_gap", 1e-6)
+        for (key, value) in instance.highs
+            set_attribute(model, key, value)
+        end
         optimize!(model)
         status = termination_status(model)
         value = primal_status(model) == MOI.FEASIBLE_POINT ? objective_value(model) : NaN
@@ -216,6 +221,14 @@ end
 
 """The warnings in the log `text`, their first lines, joined."""
 count_warnings(text) = join(unique(m[1] for m in eachmatch(r"Warning: ([^\n]*)", text)), "; ")
+
+"""The HiGHS options of `instance`, as written in `instances.toml`, or `nothing` if it has none."""
+highs_options(instance) = isempty(instance.highs) ? nothing :
+    "Solved with the HiGHS options " *
+    join(("$k = $(repr(v))" for (k, v) in sort(collect(instance.highs); by = first)), ", ") * "."
+
+"""The sense `instance` is read with, if `instances.toml` gives it, or `nothing`."""
+read_sense(instance) = instance.sense === nothing ? nothing : "Read with `sense = :$(instance.sense)`."
 
 """The published value of `instance` as printed."""
 printed(instance) = instance.read_only ? "" :
@@ -256,11 +269,13 @@ function markdown(io, results, config, option, elapsed)
                                 @sprintf("%.1f", r.seconds), r.result), " | "), " |")
     end
     notes = [(instance, r) for (instance, r) in results
-             if instance.known !== nothing || instance.note !== nothing || !isempty(r.warnings)]
+             if instance.known !== nothing || instance.note !== nothing || instance.sense !== nothing ||
+                !isempty(instance.highs) || !isempty(r.warnings)]
     if !isempty(notes)
         println(io, "\n## Notes\n")
         for (instance, r) in notes
-            text = filter(!isnothing, [instance.known, instance.note,
+            text = filter(!isnothing, [instance.known, instance.note, read_sense(instance),
+                                       highs_options(instance),
                                        isempty(r.warnings) ? nothing : "Read with warnings: $(r.warnings)."])
             println(io, "- $(instance.name): ", join(text, " "))
         end

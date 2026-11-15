@@ -60,37 +60,71 @@ julia --project=validation validation/validate.jl --size medium --output results
 
 `--size` selects the instances by the time their deterministic equivalent takes: `small`
 (seconds; the continuous integration runs them), `medium` (minutes), `large` (more, and a few
-gigabytes of memory), `huge` (over ten million nonzeros, more memory than most computers have). `--only` selects them by name, `--time-limit` limits each solve. The script
-exits with an error when an instance differs from its published value without a known reason, or
-cannot be read or solved.
+gigabytes of memory), `huge` (over ten million nonzeros, more memory than most computers have).
+`--only` selects them by name, `--time-limit` limits each solve. The script exits with an error
+when an instance differs from its published value without a known reason, or cannot be read or
+solved.
 
 ## What it shows
 
 The published values are reproduced, with a few exceptions, each documented in the
 [results](results.md) and in `instances.toml`:
 
-- **Probabilities as written.** Some stoch files give probabilities with four digits, 1/6 as
-  0.1667, that sum up to 1.0002; the published values of POSTS (pltexpA2_16, pltexpB) and of
-  Zverovich's thesis (airlift's randgen) were computed with them as written, without normalizing
-  them, and are reproduced with `probability_sums = :as_written`.
+- **Probabilities as written.** Some stoch files give probabilities with a few digits, which do
+  not sum up to 1: 1/6 as 0.1667, whose sum is 1.0002, or 0.166667, 1/15 as 0.066667. The
+  published values of POSTS (pltexpA2_16, pltexpB), of Zverovich's thesis (airlift's randgen;
+  assets-large, whose probabilities sum up to 1.0000019; the rand instances in 6000 scenarios,
+  one of whose blocks has six probabilities 0.166667) and of SIPLIB (sslp_15_45_15) were
+  computed with them as written, without normalizing them, and are reproduced with
+  `probability_sums = :as_written`.
 - **Values computed on other files.** Post_Results differs from the values computed on SPLIB's
   files of fxm and sgpf by other authors, with other readers (Felt's for fxm, COIN-OR SMI's for
   sgpf5y4), which agree with this one; the difference is the same on the larger instances of the
   family, for which no other value is published. SPLIB's sgpf3y files are not those of POSTS,
-  as Felt notes. Post_Results' values of stormG2.8 and stormG2.125 are 3.8 and 1.0 below HiGHS's,
-  whatever its tolerances and method. SIPLIB's value of sizes3 is the optimum of the deterministic
-  equivalent distributed with the files, whose costs, weighted by the probabilities 1/3, are
-  rounded to two decimals. Where a value computed on the same files agrees, it is the reference,
-  and the note gives the collection's.
+  as Felt notes. Post_Results' values of stormG2.8, stormG2.125 and stormG2.1000 are 3.8, 1.0
+  and 0.55 below HiGHS's, whatever its tolerances and method. SIPLIB's value of sizes3 is the
+  optimum of the deterministic equivalent distributed with the files, whose costs, weighted by
+  the probabilities 1/3, are rounded to two decimals. Where a value computed on the same files
+  agrees, it is the reference, and the note gives the collection's.
+- **Felt's solutions of environ.** The solutions distributed with env-15, env-8232, env-aggr
+  and env-loose are those of env-diss.cor, not env.cor, with the zeros of the last block of the
+  stoch file read as the values of its first block: Felt's solver seems to have skipped the
+  zeros of the stoch file. So read, the files give his values exactly. Zverovich's values,
+  which read the zeros, are the reference of environ.
+- **A maximization.** saphir's core file has no `OBJSENSE`, but its objective gives costs the
+  coefficient -1: as a minimization, each of its scenarios is unbounded. Read with `sense = :max`
+  (the key `sense` of `instances.toml`), it gives Zverovich's values.
+- **The solver.** HiGHS's default method, the simplex method after its presolve, does not end
+  within 1800 seconds on the largest deterministic equivalents: 4node and 4node-base from 8192
+  scenarios, phone, rand from rand0-6000 on (nor did CPLEX's, in Zverovich's Table 4.3), gbd
+  and LandS. The key `highs` of `instances.toml` gives these instances options of HiGHS, which
+  the results note: here its interior point method, without presolve or crossover, which solves
+  gbd in five minutes and LandS in twenty. On pltexpA6_6, HiGHS 1.15.1's presolve returns as
+  optimal a feasible point of value -27.9130197; without it, HiGHS finds Post_Results' optimum,
+  -28.134408. None of HiGHS's methods solves 4node-base-16384 within 1800 seconds. Its interior
+  point methods make no progress on saphir, whose simplex method solves saphir-200 in 20
+  minutes, but not saphir-500 and saphir-1000 within 1800 seconds.
+- **Zverovich's tolerance.** Zverovich's values of env and env-diss in 8232 and 32928 scenarios,
+  whose probabilities are exact, are above the optimum by 6.4e-6 to 9.2e-6 of the value, more
+  than half a unit of their sixth digit; those of saphir-50 and saphir-100, a maximization, are
+  below it by 4.8e-6 and 5.0e-6. That is within the relative stopping tolerance of his
+  decomposition methods, 1e-5 (p. 72), whose stopping point is a feasible solution, worse than
+  the optimum. HiGHS gives the same values by the simplex method and by interior points.
+- **Unexplained difference.** pltexpA5_6 is 1.7e-6 above Post_Results' value, beyond its last
+  digit, while the other pltexpA instances agree. HiGHS gives the same value by the simplex
+  method with tighter tolerances, without presolve or scaling, and by interior points.
 - **Integer programs.** SIPLIB gives the optimal values of SSLP and SIZES, and only bounds for
   DCAP and SEMI: the optimum found must lie within them. When a solve stops at its time limit, its
   bounds must be consistent with the published ones. SIPLIB's bounds of DCAP, those of the DBB
   method of Ahmed, Tawarmalani and Sahinidis (2004), are above the optimal values of four of the
   five instances in 200 and 500 scenarios that Kim and Dandurand (2022) solve; the solve here
-  finds solutions of their values. Their values are the reference of those instances; SIPLIB's,
-  of the instances in 300 scenarios, whose probabilities are written 0.003333. HiGHS does not
-  close the gap of SMKP's instances within minutes: their bounds are checked against Kim and
-  Dandurand's optima.
+  finds solutions of their values. Their values are the reference of those instances. In 300
+  scenarios, whose probabilities are written 0.003333 and sum up to 0.9999, Kim and Dandurand's
+  values are the optimal values times 0.9999, as if the first-stage costs too were weighted by
+  the probabilities as written; SIPLIB's bounds are the reference, but on dcap332_300 and
+  dcap342_300, whose optima, 1252.876909 and at most 2067.702735, are below SIPLIB's lower
+  bounds, 1253.040 and 2067.777. HiGHS does not close the gap of
+  SMKP's instances within minutes: their bounds are checked against Kim and Dandurand's optima.
 - **WATSON's files.** Consigli and Dempster's solvers agree to the digits they print, at least
   two decimals, which is the tolerance of their values. Two of SPLIB's 24 files are not those
   of the published values: watc-10-64.sto is the same file as wati-10-64.sto, and wati-10-1920.sto

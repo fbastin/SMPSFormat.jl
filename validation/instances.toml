@@ -13,8 +13,11 @@
 # collection's own value when there is one; when it differs from ours and another published value,
 # computed on the same files, agrees with ours, that one is the reference, and `note` gives the
 # collection's. `probability_sums` is the option of `read_smps`: probabilities written with a few
-# digits are kept as written where the published values were computed so. `size` sorts the
-# instances by the time HiGHS takes on their deterministic equivalent: `small` (seconds, run by
+# digits are kept as written where the published values were computed so. `sense`, `"max"`, is
+# also an option of `read_smps`, for a maximization whose core file does not say so. `highs`
+# gives options of HiGHS (`set_attribute`) for an instance its default settings do not solve, or
+# solve wrongly, within the time limit; the results note them. `size` sorts the instances by the
+# time HiGHS takes on their deterministic equivalent: `small` (seconds, run by
 # the continuous integration), `medium` (minutes), `large` (more, and a few gigabytes), `huge`
 # (over ten million nonzeros: more memory than most computers have). `known`
 # documents a difference that remains, and what is known of its cause: the instance is then
@@ -107,8 +110,8 @@ instances = [
     { n = "3_16", t = "3", s = "16", value = "-14.267458", size = "medium" },
     { n = "4_6", t = "4", s = "6", value = "-19.599417", size = "medium" },
     { n = "4_16", t = "4", s = "16", value = "-18.849337", size = "large" },
-    { n = "5_6", t = "5", s = "6", value = "-23.214073", size = "large" },
-    { n = "6_6", t = "6", s = "6", value = "-28.134408", size = "huge" },
+    { n = "5_6", t = "5", s = "6", value = "-23.214073", size = "medium", known = "The cause is not known: HiGHS gives -23.2140713288 by the simplex method, with tighter tolerances, without scaling or presolve, and by interior points, with the probabilities normalized too; the other pltexpA instances agree to the digits published." },
+    { n = "6_6", t = "6", s = "6", value = "-28.134408", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" }, note = "With its presolve, HiGHS 1.15.1 returns as optimal a feasible point of value -27.9130197; its simplex method does not end within 1800 seconds." },
 ]
 
 [[family]]
@@ -147,7 +150,7 @@ instances = [
     { n = "8", value = "15535200", reference = "zverovich", size = "small", note = "Post_Results gives 15535231.897, 3.8 lower; HiGHS gives the same value as here with tighter tolerances, by interior points and without scaling. The stoch file is not that of the other storm instances (no problem name)." },
     { n = "27", value = "15508982.306", size = "small" },
     { n = "125", value = "15512090.180", size = "medium", known = "Post_Results' value is 1.005 lower; HiGHS gives 15512091.184793 by the simplex method, with tighter tolerances, and by interior points, as it gives stormG2.8 a value 3.8 above Post_Results'." },
-    { n = "1000", value = "15802589.698", size = "large" },
+    { n = "1000", value = "15802589.698", size = "large", known = "Post_Results' value is 0.546 lower; HiGHS gives 15802590.244480 by the simplex method, with tighter tolerances, and by interior points, as it gives stormG2.8 and stormG2.125 values above Post_Results'. Zverovich gives 15802600, to six digits." },
 ]
 
 [[family]]
@@ -159,7 +162,7 @@ instances = [
     { n = "3", value = "-3027.706", size = "small", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
     { n = "4", value = "-4031.3", reference = "cirrelt", size = "small", note = "Post_Results gives -4031.391." },
     { n = "5", value = "-5201.282", size = "medium", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
-    { n = "6", value = "-6403.3", size = "large", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
+    { n = "6", value = "-6403.3", size = "medium", known = "Post_Results is about 0.1 lower; it is 0.088 lower for sgpf5y4 too, whose value computed by Zehtabian and Bastin on the same files, with COIN-OR SMI, agrees with ours." },
 ]
 
 [[family]]
@@ -171,7 +174,7 @@ reference = "posts"
 instances = [
     { n = "3", value = "-2967.917", size = "small", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
     { n = "5", value = "-5172.165", size = "medium", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
-    { n = "6", value = "-6463.323", size = "large", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
+    { n = "6", value = "-6463.323", size = "medium", known = "SPLIB's sgpf3y files are not those of POSTS: Felt took them from Frauendorfer's directory (slptestset/sg/README.local). Zehtabian and Bastin's copy of sgpf3y3 gives -2967.91 (CIRRELT-2016-12), as these files do." },
 ]
 
 # Felt's test set
@@ -193,7 +196,7 @@ files = ["slptestset/assets/assets.cor", "slptestset/assets/assets.tim", "slptes
 reference = "zverovich"
 instances = [
     { n = "small", value = "-723.839", size = "small", note = "Felt's solution.txt gives -720.472240." },
-    { n = "large", value = "-695.963", size = "large", note = "Felt's solution.txt gives -696.093189." },
+    { n = "large", value = "-695.963", size = "large", probability_sums = "as_written", note = "Its probabilities sum up to 1.0000019; normalized, they give -695.961627. Felt's solution.txt gives -696.093189." },
 ]
 
 [[family]]
@@ -215,9 +218,9 @@ instances = [
     { n = "1024", value = "434.112", size = "medium" },
     { n = "2048", value = "441.738", size = "large" },
     { n = "4096", value = "446.856", size = "large" },
-    { n = "8192", value = "446.856", size = "large" },
-    { n = "16384", value = "446.856", size = "huge" },
-    { n = "32768", value = "446.856", size = "huge" },
+    { n = "8192", value = "446.856", size = "large", highs = { solver = "ipm", presolve = "off", run_crossover = "off" } },
+    { n = "16384", value = "446.856", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" } },
+    { n = "32768", value = "446.856", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" } },
 ]
 
 [[family]]
@@ -239,9 +242,9 @@ instances = [
     { n = "1024", value = "423.05", size = "medium" },
     { n = "2048", value = "423.763", size = "large" },
     { n = "4096", value = "424.753", size = "large" },
-    { n = "8192", value = "424.775", size = "large" },
-    { n = "16384", value = "424.775", size = "huge" },
-    { n = "32768", value = "424.775", size = "huge" },
+    { n = "8192", value = "424.775", size = "large", highs = { solver = "ipm", presolve = "off", run_crossover = "off" } },
+    { n = "16384", value = "424.775", size = "huge", note = "HiGHS 1.15.1 does not solve it within 1800 seconds, by the simplex method or by interior points (HiPO, IPX, with or without presolve), unlike 4node-base-8192 and 4node-base-32768." },
+    { n = "32768", value = "424.775", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" } },
 ]
 
 [[family]]
@@ -293,8 +296,8 @@ instances = [
     { n = "1875", value = "22447.1", size = "medium" },
     { n = "3780", value = "22441", size = "medium" },
     { n = "5292", value = "22438.4", size = "medium" },
-    { n = "8232", value = "22439.1", size = "large" },
-    { n = "32928", value = "22439.1", size = "large" },
+    { n = "8232", value = "22439.1", size = "medium", known = "Zverovich's value is 0.206 above, 9.2e-6 of it: within the relative stopping tolerance 1e-5 of his decomposition methods, as for env-32928, env-diss-8232 and env-diss-32928, all above. HiGHS gives 22438.893958 by the simplex method, with tighter tolerances, and by interior points, its probabilities exact." },
+    { n = "32928", value = "22439.1", size = "large", known = "Zverovich's value is 0.203 above, 9.1e-6 of it: within the relative stopping tolerance 1e-5 of his decomposition methods, as for env-8232." },
 ]
 
 [[family]]
@@ -311,8 +314,8 @@ instances = [
     { n = "1875", value = "20809.3", size = "medium" },
     { n = "3780", value = "20794.7", size = "medium" },
     { n = "5292", value = "20788.6", size = "medium" },
-    { n = "8232", value = "20799.4", size = "large" },
-    { n = "32928", value = "20799.4", size = "large" },
+    { n = "8232", value = "20799.4", size = "medium", known = "Zverovich's value is 0.135 above, 6.5e-6 of it: within the relative stopping tolerance 1e-5 of his decomposition methods, as for env-8232." },
+    { n = "32928", value = "20799.4", size = "large", known = "Zverovich's value is 0.133 above, 6.4e-6 of it: within the relative stopping tolerance 1e-5 of his decomposition methods, as for env-8232." },
 ]
 
 [[family]]
@@ -322,7 +325,7 @@ files = ["slptestset/phone/phone.cor", "slptestset/phone/phone.tim", "slptestset
 reference = "zverovich"
 instances = [
     { n = "1", value = "36.9", size = "small" },
-    { n = "", value = "36.9", size = "huge" },
+    { n = "", value = "36.9", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" } },
 ]
 
 [[family]]
@@ -342,20 +345,22 @@ name = "rand{n}"
 archive = "splib"
 files = ["rand/rand{r}.cor", "rand/rand{r}.tim", "rand/rand{r}-{s}.sto"]
 reference = "zverovich"
+# the simplex method does not end within 1800 seconds from rand0-6000 on, nor did CPLEX's in Zverovich's Table 4.3
+highs = { solver = "ipm", presolve = "off", run_crossover = "off" }
 instances = [
-    { n = "0-2000", r = "0", s = "2000", value = "162.146", size = "large" },
-    { n = "0-4000", r = "0", s = "4000", value = "199.032", size = "large" },
-    { n = "0-6000", r = "0", s = "6000", value = "140.275", size = "large" },
+    { n = "0-2000", r = "0", s = "2000", value = "162.146", size = "medium" },
+    { n = "0-4000", r = "0", s = "4000", value = "199.032", size = "medium" },
+    { n = "0-6000", r = "0", s = "6000", value = "140.275", size = "medium", probability_sums = "as_written", note = "The six probabilities of its BLOCK4, 0.166667, sum up to 1.000002; normalized, they give 140.2744644 (an optimal basis, by interior points and crossover)." },
     { n = "0-8000", r = "0", s = "8000", value = "170.318", size = "large" },
     { n = "0-10000", r = "0", s = "10000", value = "139.129", size = "large" },
-    { n = "1-2000", r = "1", s = "2000", value = "244.159", size = "large" },
+    { n = "1-2000", r = "1", s = "2000", value = "244.159", size = "medium" },
     { n = "1-4000", r = "1", s = "4000", value = "259.346", size = "large" },
-    { n = "1-6000", r = "1", s = "6000", value = "297.563", size = "large" },
+    { n = "1-6000", r = "1", s = "6000", value = "297.563", size = "large", probability_sums = "as_written", note = "The six probabilities of its BLOCK4, 0.166667, sum up to 1.000002; normalized, they give 297.5621604 (an optimal basis, by interior points and crossover)." },
     { n = "1-8000", r = "1", s = "8000", value = "262.451", size = "huge" },
     { n = "1-10000", r = "1", s = "10000", value = "298.638", size = "huge" },
     { n = "2-2000", r = "2", s = "2000", value = "209.151", size = "large" },
     { n = "2-4000", r = "2", s = "4000", value = "218.247", size = "huge" },
-    { n = "2-6000", r = "2", s = "6000", value = "239.721", size = "huge" },
+    { n = "2-6000", r = "2", s = "6000", value = "239.721", size = "huge", probability_sums = "as_written", note = "The six probabilities of its BLOCK4, 0.166667, sum up to 1.000002; normalized, they give 239.7201516." },
     { n = "2-8000", r = "2", s = "8000", value = "239.158", size = "huge" },
     { n = "2-10000", r = "2", s = "10000", value = "231.706", size = "huge" },
 ]
@@ -365,12 +370,14 @@ name = "saphir-{n}"
 archive = "splib"
 files = ["saphir/saphir-{n}.cor", "saphir/saphir-{n}.tim", "saphir/saphir-{n}.sto"]
 reference = "zverovich"
+# a maximization: the core file has no OBJSENSE, and as a minimization the problem is unbounded
+sense = "max"
 instances = [
-    { n = "50", value = "129505000", size = "large" },
-    { n = "100", value = "129058000", size = "large" },
+    { n = "50", value = "129505000", size = "medium", known = "Zverovich's value is 616 below, 4.8e-6 of it: within the relative stopping tolerance 1e-5 of his decomposition methods, whose stopping point, in a maximization, is a lower bound, as for env-8232. It is also the optimum truncated to six digits, as for saphir-100, while his other values are rounded. HiGHS gives 129505616.309 by the simplex method and by interior points with crossover." },
+    { n = "100", value = "129058000", size = "large", known = "Zverovich's value is 643 below, 5.0e-6 of it, as for saphir-50." },
     { n = "200", value = "141473000", size = "large" },
-    { n = "500", value = "137871000", size = "huge" },
-    { n = "1000", value = "133036000", size = "huge" },
+    { n = "500", value = "137871000", size = "huge", note = "HiGHS 1.15.1 does not solve it within 1800 seconds: its simplex method takes 1180 seconds on saphir-200, and its interior point methods (HiPO, IPX, with or without presolve) make no progress on saphir-200." },
+    { n = "1000", value = "133036000", size = "huge", note = "HiGHS 1.15.1 does not solve it within 1800 seconds, as saphir-500." },
 ]
 
 # SIPLIB
@@ -388,9 +395,9 @@ instances = [
     { n = "10_50_500", m = "10_50", s = "500", value = "-349.136", size = "large" },
     { n = "10_50_1000", m = "10_50", s = "1000", value = "-351.711", size = "large" },
     { n = "10_50_2000", m = "10_50", s = "2000", value = "-347.262", size = "large" },
-    { n = "15_45_5", m = "15_45", s = "5", value = "-262.400", size = "large" },
-    { n = "15_45_10", m = "15_45", s = "10", value = "-260.500", size = "large" },
-    { n = "15_45_15", m = "15_45", s = "15", value = "-253.602", size = "large" },
+    { n = "15_45_5", m = "15_45", s = "5", value = "-262.400", size = "medium" },
+    { n = "15_45_10", m = "15_45", s = "10", value = "-260.500", size = "medium" },
+    { n = "15_45_15", m = "15_45", s = "15", value = "-253.602", size = "medium", probability_sums = "as_written", note = "Its probabilities, 0.066667, sum up to 1.000005; normalized, they give -253.6." },
 ]
 
 # SIPLIB gives for DCAP the bounds of the DBB method of Ahmed, Tawarmalani and Sahinidis (2004).
@@ -399,8 +406,10 @@ instances = [
 # finds solutions of their values below SIPLIB's lower bounds (dcap233_200, dcap243_200,
 # dcap243_500): their values are the reference; where they prove no optimum, the lower bound is
 # their best one, the upper bound SIPLIB's. In 300 scenarios, whose probabilities are written
-# 0.003333, SIPLIB's bounds agree with the optimum of dcap243_300, Kim and Dandurand's value does
-# not, with the probabilities normalized or as written: SIPLIB's bounds are the reference.
+# 0.003333 and sum up to 0.9999, Kim and Dandurand's values are the optimal values times 0.9999,
+# as if the first-stage costs too were weighted by the probabilities as written: SIPLIB's bounds
+# are the reference, but on dcap332_300 and dcap342_300, whose optima are below SIPLIB's lower
+# bounds.
 [[family]]
 name = "dcap{n}"
 archive = "splib"
@@ -408,16 +417,16 @@ files = ["siplib/dcap{d}/dcap{d}-{s}.cor", "siplib/dcap{d}/dcap{d}-{s}.tim", "si
 reference = "kim"
 instances = [
     { n = "233_200", d = "233", s = "200", lower = "1834.55", upper = "1834.57", size = "medium", note = "SIPLIB: [1834.868, 1834.893]." },
-    { n = "233_300", d = "233", s = "300", lower = "1644.342", upper = "1644.504", size = "large", reference = "siplib", note = "Kim and Dandurand: [1644.19, 1644.20]." },
+    { n = "233_300", d = "233", s = "300", lower = "1644.342", upper = "1644.504", size = "large", reference = "siplib", note = "Kim and Dandurand: [1644.19, 1644.20], the optimum times 0.9999, the sum of the probabilities, as if the first-stage costs too were weighted by the probabilities as written." },
     { n = "233_500", d = "233", s = "500", lower = "1737.52", upper = "1737.54", size = "large", note = "SIPLIB: [1737.719, 1737.728]." },
     { n = "243_200", d = "243", s = "200", lower = "2322.49", upper = "2322.49", size = "medium", note = "SIPLIB: [2322.721, 2322.721]." },
-    { n = "243_300", d = "243", s = "300", lower = "2559.297", upper = "2559.545", size = "medium", reference = "siplib", note = "Kim and Dandurand: [2559.19, 2559.19], below the optimum found here with the probabilities normalized (2559.4478) or as written (2559.2128)." },
+    { n = "243_300", d = "243", s = "300", lower = "2559.297", upper = "2559.545", size = "medium", reference = "siplib", note = "Kim and Dandurand: [2559.19, 2559.19], the optimum times 0.9999, as for dcap233_300." },
     { n = "243_500", d = "243", s = "500", lower = "2167.35", upper = "2167.36", size = "large", note = "SIPLIB: [2167.512, 2167.512]." },
     { n = "332_200", d = "332", s = "200", lower = "1060.65", upper = "1060.70", size = "large", note = "SIPLIB: [1060.676, 1060.781]." },
-    { n = "332_300", d = "332", s = "300", lower = "1253.040", upper = "1253.082", size = "large", reference = "siplib", note = "Kim and Dandurand: [1252.75, 1252.75]." },
+    { n = "332_300", d = "332", s = "300", lower = "1253.040", upper = "1253.082", size = "large", reference = "siplib", known = "SIPLIB's lower bound is above the optimum, 1252.876909, which HiGHS proves in 2954 seconds on four threads, as for dcap233_200, dcap243_200 and dcap243_500.", note = "Kim and Dandurand: [1252.75, 1252.75], the optimum times 0.9999, as for dcap233_300." },
     { n = "332_500", d = "332", s = "500", lower = "1587.09", upper = "1588.876", size = "large", note = "Kim and Dandurand's lower bound, SIPLIB's upper bound; SIPLIB: [1588.717, 1588.876]." },
     { n = "342_200", d = "342", s = "200", lower = "1618.11", upper = "1619.654", size = "large", note = "Kim and Dandurand's lower bound, SIPLIB's upper bound; SIPLIB: [1619.531, 1619.654]." },
-    { n = "342_300", d = "342", s = "300", lower = "2067.777", upper = "2067.818", size = "large", reference = "siplib", note = "Kim and Dandurand: [2067.49, 2067.54]." },
+    { n = "342_300", d = "342", s = "300", lower = "2067.777", upper = "2067.818", size = "large", reference = "siplib", known = "SIPLIB's lower bound is above the solutions found here, as for dcap332_300.", note = "Kim and Dandurand: [2067.49, 2067.54], bounds of the optimum times 0.9999, as for dcap233_300." },
     { n = "342_500", d = "342", s = "500", lower = "1904.65", upper = "1904.803", size = "large", note = "Kim and Dandurand's lower bound, SIPLIB's upper bound; SIPLIB: [1904.722, 1904.803]." },
 ]
 
@@ -533,8 +542,8 @@ archive = "splib"
 files = ["wright/{d}/{f}.cor", "wright/{d}/{f}.tim", "wright/{d}/{f}.sto"]
 reference = "lsw"
 instances = [
-    { n = "gbd", d = "gbd", f = "gbd", value = "1655.63", reference = "bayraksan", size = "huge", note = "Linderoth, Shapiro and Wright's estimates: lower bound 1655.62 ± 0.00, upper bound 1655.628 ± 0.00." },
-    { n = "LandS", d = "lands", f = "lands", lower = "225.60", upper = "225.629", size = "huge", note = "Estimates: lower bound 225.62 ± 0.02, upper bound 225.624 ± 0.005." },
+    { n = "gbd", d = "gbd", f = "gbd", value = "1655.63", reference = "bayraksan", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" }, note = "Linderoth, Shapiro and Wright's estimates: lower bound 1655.62 ± 0.00, upper bound 1655.628 ± 0.00." },
+    { n = "LandS", d = "lands", f = "lands", lower = "225.60", upper = "225.629", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" }, note = "Estimates: lower bound 225.62 ± 0.02, upper bound 225.624 ± 0.005." },
     { n = "20term", d = "20term", f = "20", size = "small", note = "Estimates: lower bound 254298.57 ± 38.74, upper bound 254311.55 ± 5.56." },
     { n = "ssn", d = "ssn", f = "ssn", size = "small", note = "Estimates: lower bound 9.84 ± 0.10, upper bound 9.913 ± 0.022." },
     { n = "storm", d = "storm", f = "storm", size = "small", note = "Estimates: lower bound 15498657.8 ± 73.9, upper bound 15498739.41 ± 19.11." },
