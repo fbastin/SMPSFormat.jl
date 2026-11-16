@@ -1,7 +1,8 @@
 name: Validation
 # The instances of validation/instances.toml read, solved and compared with their published
 # optimal values, then written in StochOptFormat and solved by SDDP.jl's deterministic
-# equivalent: the small ones on each change, larger ones on demand.
+# equivalent, and written in SMPS and read back: the small ones on each change, larger ones on
+# demand.
 on:
   push:
     branches: [main]
@@ -42,11 +43,15 @@ jobs:
       - name: Validate StochOptFormat
         if: ${{ !cancelled() }}
         run: julia --project=validation validation/sof.jl --size ${{ inputs.size || 'small' }} --output sof-results.md
+      - name: Validate the SMPS round trip
+        if: ${{ !cancelled() }}
+        run: julia --project=validation validation/roundtrip.jl --size ${{ inputs.size || 'small' }} --output roundtrip-results.md
       - name: Summary
         if: always()
         run: |
           test -f results.md && cat results.md >> "$GITHUB_STEP_SUMMARY" || true
           test -f sof-results.md && cat sof-results.md >> "$GITHUB_STEP_SUMMARY" || true
+          test -f roundtrip-results.md && cat roundtrip-results.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -54,4 +59,5 @@ jobs:
           path: |
             results.md
             sof-results.md
+            roundtrip-results.md
           if-no-files-found: ignore

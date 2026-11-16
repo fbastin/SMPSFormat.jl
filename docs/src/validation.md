@@ -193,6 +193,29 @@ no progress on ssn, whose SAAs of 5000 scenarios IPX solves in two hours each; t
 scenarios of ssn and storm are solved by its simplex method, IPX taking ten times longer on
 storm.
 
+## Writing SMPS
+
+`validation/roundtrip.jl` checks [`write_smps`](@ref) on all the instances, those only read
+included: each is read, written in SMPS and read back, its probabilities as written (those
+written are those read, in full) and without `sense`, which the written core file must give.
+The problem read back must be the one read, every number exactly, every name the same but for
+those `write_smps` gives (`SMPS` for a problem without a name, `RHS` for the right-hand side
+vector, `S1`, `S2`... for the scenarios of a tree). A two-stage problem or a law by period is
+compared field by field, its laws by their outcomes completed with the values of the core file
+for the elements of their block that they do not list, all of which `write_smps` lists; a
+scenario tree as a stochastic program, by the data of each scenario
+([`scenario_data`](@ref)), the probabilities of its nodes and its bundles ([`bundles`](@ref)),
+since `write_smps` writes the data of the root in the core file and only the values that differ
+from those inherited.
+
+```
+julia --project=validation validation/roundtrip.jl --size small --output roundtrip-results.md
+```
+
+The options are those of `validate.jl`; the continuous integration runs the small instances.
+On all 208 instances, up to the size `huge`, every problem read back is the one read
+([results](roundtrip-results.md)).
+
 ## StochOptFormat
 
 `validation/sof.jl` checks [`write_sof`](@ref) on the same instances, with readers other than

@@ -82,6 +82,9 @@ the few differences that remain, with what is known of their causes.
 [`validation/sof.jl`](validation/sof.jl) checks `write_sof` the same way: each instance written
 in StochOptFormat, read back by SDDP.jl, and the deterministic equivalent SDDP.jl builds of it
 solved ([results](validation/sof-results.md)).
+[`validation/roundtrip.jl`](validation/roundtrip.jl) checks `write_smps`: each instance written
+in SMPS and read back must give the same problem, every number exactly
+([results](validation/roundtrip-results.md)).
 
 ## Licence
 
