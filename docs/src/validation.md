@@ -161,6 +161,28 @@ probabilities 0.111 sum up to 0.999, gives 42 rather than 41.958), and it takes 
 a scenario does not list, in its branch period and later, from the core file rather than from its
 parent (app0110R gives 44.667 and wat_10_C_32 -2622.062 until these entries are listed).
 
+Consigli and Dempster's values decide between the two readings of the scenarios: the children of
+SPLIB's WATSON files do not list thousands of the entries that their ancestors list in their
+branch period and later (13918 in watc-10-16), and their published values are found only when
+these entries are inherited from the parent, as here; taken from the core file, as SMI takes them,
+watc-10-16, wati-10-16 and watc-10-32 give -2400.079, -2160.119 and -2172.958, against -2401.875,
+-2158.752 and -2167.624. COIN-OR's files seem written for SMI's reading: app0110, app0110R's
+problem written with `SCENARIOS ADD` (and rows named otherwise), which the reader refuses, gives
+the same value as app0110R in SMI, 44.667, and no reading of `ADD` gives 41.958 when the entries
+are inherited from the parent. SMI also reads prod_mixR, whose scenarios change the coefficients
+of the first-stage columns in the second-stage rows, absent from its core file, which the reader
+refuses: with these coefficients added to the core file with the value 0, the reader gives SMI's
+value, -17730.318345, with the probabilities normalized.
+
+StochasticPrograms.jl's reader of two-stage SMPS files, another one, gives the values of this one
+on the instances it reads (pltexpA2_6, pltexpA2_16, fxm2.16, airl-second, LandS in both forms,
+environ in eight versions), but not on assets-small, where this one gives the published value; it
+does not read most of the other files (two entries on a line, integer markers, probabilities
+that do not sum up to 1). Its continuous distributions take the parameters of the constructors
+of Distributions.jl (a standard deviation for `NORMAL`, the shape then the scale for `GAMMA`), and
+its `MULTIPLY` gives the core value plus its absolute value times the value given: it cannot check
+the readings of the format that [the conventions of this reader](format.md) make.
+
 ## Sampling estimates
 
 `validation/sampling.jl` estimates the optimal values of the sampling instances as Linderoth,
