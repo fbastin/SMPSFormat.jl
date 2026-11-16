@@ -171,7 +171,7 @@ scenarios, each with its 95% confidence interval. Their Table 4 gives the estima
 quantities for the same `N`.
 
 ```
-julia --project=validation validation/sampling.jl gbd LandS 20term
+julia --project=validation validation/sampling.jl gbd LandS 20term ssn
 julia --project=validation validation/sampling.jl --scenarios 1000 --solver simplex ssn storm
 ```
 
@@ -181,13 +181,17 @@ julia --project=validation validation/sampling.jl --scenarios 1000 --solver simp
 | LandS | 5000 | 225.636 ± 0.019 | 225.62 ± 0.02 | 225.6305 ± 0.0045 | 225.624 ± 0.005 |
 | 20term | 5000 | 254289.2 ± 15.8 | 254298.57 ± 38.74 | 254315.1 ± 5.7 | 254311.55 ± 5.56 |
 | ssn | 1000 | 9.580 ± 0.165 | 9.83 ± 0.29 | 9.965 ± 0.025 | 9.996 ± 0.025 |
+| ssn | 5000 | 9.944 ± 0.124 | 9.84 ± 0.10 | 9.888 ± 0.024 | 9.913 ± 0.022 |
 | storm | 1000 | 15498731 ± 265 | 15498598.1 ± 148.5 | 15498721.2 ± 20.0 | 15498735.73 ± 19.93 |
 
 Each estimate of LandS, 20term, ssn and storm differs from theirs by less than the half-width of
 the confidence interval of the difference; gbd's are its optimum, to the digits they print. The
 optima of gbd and LandS, which `validate.jl` computes, 1655.627848 and 225.629400, lie within
-these bounds. The SAAs of ssn and storm are solved by HiGHS's simplex method, its interior point
-methods making no progress on ssn and taking ten times longer on storm, which keeps `N` to 1000.
+these bounds. ssn's lower bound for `N` = 5000 is above its upper bound, within their confidence
+intervals: three of its seven samples give high values. HiGHS's interior point method HiPO makes
+no progress on ssn, whose SAAs of 5000 scenarios IPX solves in two hours each; the SAAs of 1000
+scenarios of ssn and storm are solved by its simplex method, IPX taking ten times longer on
+storm.
 
 ## StochOptFormat
 
