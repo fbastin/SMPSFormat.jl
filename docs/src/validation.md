@@ -72,11 +72,11 @@ The published values are reproduced, with a few exceptions, each documented in t
 
 - **Probabilities as written.** Some stoch files give probabilities with a few digits, which do
   not sum up to 1: 1/6 as 0.1667, whose sum is 1.0002, or 0.166667, 1/15 as 0.066667. The
-  published values of POSTS (pltexpA2_16, pltexpB), of Zverovich's thesis (airlift's randgen;
-  assets-large, whose probabilities sum up to 1.0000019; the rand instances in 6000 scenarios,
-  one of whose blocks has six probabilities 0.166667) and of SIPLIB (sslp_15_45_15) were
-  computed with them as written, without normalizing them, and are reproduced with
-  `probability_sums = :as_written`.
+  published values of POSTS (pltexpA2_16, pltexpB3, pltexpB4), of Zverovich's thesis
+  (airlift's randgen; assets-large, whose probabilities sum up to 1.0000019; the rand instances
+  in 6000 scenarios, one of whose blocks has six probabilities 0.166667) and of SIPLIB
+  (sslp_15_45_15) were computed with them as written, without normalizing them, and are
+  reproduced with `probability_sums = :as_written`.
 - **Values computed on other files.** Post_Results differs from the values computed on SPLIB's
   files of fxm and sgpf by other authors, with other readers (Felt's for fxm, COIN-OR SMI's for
   sgpf5y4), which agree with this one; the difference is the same on the larger instances of the
@@ -110,9 +110,15 @@ The published values are reproduced, with a few exceptions, each documented in t
   below it by 4.8e-6 and 5.0e-6. That is within the relative stopping tolerance of his
   decomposition methods, 1e-5 (p. 72), whose stopping point is a feasible solution, worse than
   the optimum. HiGHS gives the same values by the simplex method and by interior points.
-- **Unexplained difference.** pltexpA5_6 is 1.7e-6 above Post_Results' value, beyond its last
-  digit, while the other pltexpA instances agree. HiGHS gives the same value by the simplex
-  method with tighter tolerances, without presolve or scaling, and by interior points.
+- **The accuracy of the solvers.** pltexpA5_6 is 1.7e-6 above Post_Results' value, beyond its
+  last digit, while the other pltexpA instances agree; HiGHS gives the same value by the simplex
+  method with tighter tolerances, without presolve or scaling, and by interior points. The pltexp
+  problems are ill-conditioned: on the same deterministic equivalents, HiGHS and Clp differ by
+  2e-6 to 1e-5 on pltexpB3 to pltexpB5, more than this difference.
+- **Unexplained difference.** pltexpB5 is 0.0028 above Post_Results' value with its
+  probabilities as written (-23.843400 against -23.846166), 0.0066 with them normalized, while
+  pltexpB3 and pltexpB4, read the same way, agree. COIN-OR SMI reads the same problem from its
+  files (see below).
 - **Integer programs.** SIPLIB gives the optimal values of SSLP and SIZES, and only bounds for
   DCAP and SEMI: the optimum found must lie within them. When a solve stops at its time limit, its
   bounds must be consistent with the published ones. SIPLIB's bounds of DCAP, those of the DBB
@@ -142,3 +148,13 @@ wat10I16, wat10C32), against the values of the report, two of whose files (KW3Rb
 KW3R with random technology matrices, and Asset Mgt) are not distributed with SPLIB or
 COIN-OR's Data-Stochastic. wat10I16 is SPLIB's WATSON instance wati-10-16, which the script
 checks; SMI's original stoch file of wat10I16, with its random bounds, gives the same value.
+
+COIN-OR SMI 0.96.1, another reader, gives the same deterministic equivalents as this one on the
+files it reads: KandW3R, app0110R and wat_10_C_32, and pltexpA4_6, pltexpA5_6 and pltexpB3 to
+pltexpB5 with their `BLOCKS` rewritten as `SCENARIOS` (SMI reads neither `BLOCKS` nor the bounds
+that the scenarios of SPLIB's WATSON files modify). Their optimal values agree, to the accuracy
+of the solvers (on pltexpA5_6, HiGHS gives the same value on both, Clp 1.6e-4 more on SMI's), once
+two differences of SMI are accounted for: it normalizes the probabilities (app0110R, whose nine
+probabilities 0.111 sum up to 0.999, gives 42 rather than 41.958), and it takes the entries that
+a scenario does not list, in its branch period and later, from the core file rather than from its
+parent (app0110R gives 44.667 and wat_10_C_32 -2622.062 until these entries are listed).

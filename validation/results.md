@@ -2,7 +2,7 @@
 
 SMPSFormat 0.8.0, JuMP 1.32.1, HiGHS.jl 1.26.1 (HiGHS 1.15.1), Julia 1.12.1, x86_64-linux-gnu; run on 2026-11-15, instances up to the size `huge`, 1800 seconds per solve, 1432.0 minutes in all.
 
-gbd and LandS were run again with `--only`, after corrections of `instances.toml`; their rows and notes are those of that run.
+gbd, LandS, pltexpA5_6 and pltexpB5 were run again with `--only`, after corrections of `instances.toml`; their rows and notes are those of these runs.
 
 134 agrees, 30 consistent, not solved, 26 differs (known), 3 not solved, 15 read.
 
@@ -14,11 +14,11 @@ gbd and LandS were run again with `--only`, after corrections of `instances.toml
 | pltexpA3_16 | 3 | 256 | 28350 | 74172 | -14.267458 | posts | -14.26745774 | 2.6e-07 | 0.5 | agrees |
 | pltexpA4_6 | 4 | 216 | 26894 | 70364 | -19.599417 | posts | -19.59941738 | -3.82e-07 | 0.4 | agrees |
 | pltexpA4_16 | 4 | 4096 | 454334 | 1188284 | -18.849337 | posts | -18.84933686 | 1.4e-07 | 220.6 | agrees |
-| pltexpA5_6 | 5 | 1296 | 161678 | 422876 | -23.214073 | posts | -23.21407133 | 1.67e-06 | 19.2 | differs (known) |
+| pltexpA5_6 | 5 | 1296 | 161678 | 422876 | -23.214073 | posts | -23.21407133 | 1.67e-06 | 23.5 | differs (known) |
 | pltexpA6_6 | 6 | 7776 | 970382 | 2537948 | -28.134408 | posts | -28.13440747 | 5.25e-07 | 226.0 | agrees |
 | pltexpB3 | 3 | 12 | 1934 | 5084 | -13.643226 | posts | -13.64322619 | -1.92e-07 | 0.0 | agrees |
 | pltexpB4 | 4 | 24 | 4430 | 11612 | -17.928191 | posts | -17.92819134 | -3.39e-07 | 0.1 | agrees |
-| pltexpB5 | 5 | 48 | 9422 | 24668 | -23.846166 | posts | -23.84339992 | 0.00277 | 0.1 | differs (known) |
+| pltexpB5 | 5 | 48 | 9422 | 24668 | -23.846166 | posts | -23.84339992 | 0.00277 | 0.5 | differs (known) |
 | fxm2.6 | 2 | 6 | 1520 | 2172 | 18417.065572 | felt | 18417.06557 | 4.93e-07 | 0.1 | agrees |
 | fxm2.16 | 2 | 16 | 3900 | 5602 | 18416.759028 | felt | 18416.75903 | 3.49e-07 | 0.1 | agrees |
 | fxm3.6 | 3 | 36 | 6200 | 9492 | 18615.932 | posts | 18616.03616 | 0.104 | 0.2 | differs (known) |
@@ -221,11 +221,11 @@ gbd and LandS were run again with `--only`, after corrections of `instances.toml
 
 - pltexpA2_16: Read with warnings: posts/pltexp/pltexpa-2-16.sto: the probabilities of BLOCKS BLOCK001 sum up to 1.0002; kept as written.
 - pltexpA4_16: Read with warnings: posts/pltexp/pltexpa-4-16.sto: the probabilities of BLOCKS BLOCK001 sum up to 0.9998999999999998; kept as written; posts/pltexp/pltexpa-4-16.sto: the probabilities of BLOCKS BLOCK002 sum up to 1.0001000000000002; kept as written; posts/pltexp/pltexpa-4-16.sto: the probabilities of BLOCKS BLOCK003 sum up to 0.9996; kept as written.
-- pltexpA5_6: The cause is not known: HiGHS gives -23.2140713288 by the simplex method, with tighter tolerances, without scaling or presolve, and by interior points, with the probabilities normalized too; the other pltexpA instances agree to the digits published.
+- pltexpA5_6: Post_Results is 1.7e-6 lower, within the accuracy of the solvers on the pltexp problems, which are ill-conditioned: on the deterministic equivalents of COIN-OR SMI, which reads the same problems from these files (their blocks rewritten as scenarios), HiGHS and Clp differ by 2e-6 to 1e-5 on pltexpB3 to pltexpB5. HiGHS gives -23.2140713288 by the simplex method, with tighter tolerances, without scaling or presolve, and by interior points, with the probabilities normalized too; the other pltexpA instances agree to the digits published.
 - pltexpA6_6: With its presolve, HiGHS 1.15.1 returns as optimal a feasible point of value -27.9130197; its simplex method does not end within 1800 seconds. Solved with the HiGHS options presolve = "off", run_crossover = "off", solver = "ipm".
 - pltexpB3: Read with warnings: posts/pltexp/pltexpb-3-6.sto: the probabilities of BLOCKS BLOCK001 sum up to 1.0002; kept as written.
 - pltexpB4: Read with warnings: posts/pltexp/pltexpb-4-6.sto: the probabilities of BLOCKS BLOCK001 sum up to 1.0002; kept as written.
-- pltexpB5: The cause is not known: the same files, read the same way, give pltexpB3 and pltexpB4 to the digits published; with the probabilities normalized, -23.839595. Read with warnings: posts/pltexp/pltexpb-5-6.sto: the probabilities of BLOCKS BLOCK001 sum up to 1.0002; kept as written.
+- pltexpB5: The cause is not known: the same files, read the same way, give pltexpB3 and pltexpB4 to the digits published; with the probabilities normalized, -23.839595. COIN-OR SMI reads the same problem from these files (their blocks rewritten as scenarios): Clp gives -23.839595, SMI normalizing the probabilities. Read with warnings: posts/pltexp/pltexpb-5-6.sto: the probabilities of BLOCKS BLOCK001 sum up to 1.0002; kept as written.
 - fxm2.6: Post_Results gives 18416.686; Zverovich, 18417.1. Read with warnings: posts/fxm/fxm-2-6.sto: the probabilities of INDEP (RHS, 1MS037) sum up to 1.0000200000000001; kept as written.
 - fxm2.16: Post_Results gives 18416.655; Zverovich, 18416.8.
 - fxm3.6: Post_Results is 0.104 lower, as for fxm2.16, whose value computed by Felt on the same files agrees with ours (and Zverovich's, to six digits): Post_Results was probably computed on another version of the files. Read with warnings: posts/fxm/fxm-3-6.sto: the probabilities of INDEP (RHS, 1MS037) sum up to 1.0000200000000001; kept as written; posts/fxm/fxm-3-6.sto: the probabilities of INDEP (RHS, 1PD068) sum up to 1.0000200000000001; kept as written.

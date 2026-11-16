@@ -110,7 +110,7 @@ instances = [
     { n = "3_16", t = "3", s = "16", value = "-14.267458", size = "medium" },
     { n = "4_6", t = "4", s = "6", value = "-19.599417", size = "medium" },
     { n = "4_16", t = "4", s = "16", value = "-18.849337", size = "large" },
-    { n = "5_6", t = "5", s = "6", value = "-23.214073", size = "medium", known = "The cause is not known: HiGHS gives -23.2140713288 by the simplex method, with tighter tolerances, without scaling or presolve, and by interior points, with the probabilities normalized too; the other pltexpA instances agree to the digits published." },
+    { n = "5_6", t = "5", s = "6", value = "-23.214073", size = "medium", known = "Post_Results is 1.7e-6 lower, within the accuracy of the solvers on the pltexp problems, which are ill-conditioned: on the deterministic equivalents of COIN-OR SMI, which reads the same problems from these files (their blocks rewritten as scenarios), HiGHS and Clp differ by 2e-6 to 1e-5 on pltexpB3 to pltexpB5. HiGHS gives -23.2140713288 by the simplex method, with tighter tolerances, without scaling or presolve, and by interior points, with the probabilities normalized too; the other pltexpA instances agree to the digits published." },
     { n = "6_6", t = "6", s = "6", value = "-28.134408", size = "huge", highs = { solver = "ipm", presolve = "off", run_crossover = "off" }, note = "With its presolve, HiGHS 1.15.1 returns as optimal a feasible point of value -27.9130197; its simplex method does not end within 1800 seconds." },
 ]
 
@@ -123,7 +123,7 @@ probability_sums = "as_written"
 instances = [
     { n = "3", value = "-13.643226", size = "small" },
     { n = "4", value = "-17.928191", size = "small" },
-    { n = "5", value = "-23.846166", size = "small", known = "The cause is not known: the same files, read the same way, give pltexpB3 and pltexpB4 to the digits published; with the probabilities normalized, -23.839595." },
+    { n = "5", value = "-23.846166", size = "small", known = "The cause is not known: the same files, read the same way, give pltexpB3 and pltexpB4 to the digits published; with the probabilities normalized, -23.839595. COIN-OR SMI reads the same problem from these files (their blocks rewritten as scenarios): Clp gives -23.839595, SMI normalizing the probabilities." },
 ]
 
 [[family]]
