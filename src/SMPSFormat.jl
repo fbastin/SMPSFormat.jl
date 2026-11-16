@@ -18,6 +18,8 @@ file, the law of its random data.
 - [`write_smps`](@ref) writes a problem back: a two-stage problem with its law or with given
   scenarios, a tree, a law by period. [`scenario_tree`](@ref) and [`sample_tree`](@ref) also turn
   a two-stage problem into a tree in two periods, so that a code written for trees treats both.
+- [`write_sof`](@ref) writes a problem in StochOptFormat, the JSON format of SDDP.jl for
+  multistage stochastic programs: its policy graph, with its subproblems in MathOptFormat.
 - With JuMP loaded, [`extensive_form`](@ref) builds the deterministic equivalent: for given
   scenarios of a two-stage instance, or on the tree of a multistage one.
 
@@ -29,13 +31,13 @@ that differ between the files (a warning), probabilities rounded to the digits w
 """
 module SMPSFormat
 
-using CodecZlib: GzipDecompressorStream
+using CodecZlib: GzipDecompressorStream, GzipCompressorStream
 using Distributions: Distributions, UnivariateDistribution, Normal, Uniform, Gamma, Beta, LogNormal
 using Printf
 using Random
 using SparseArrays
 
-export SMPSProblem, SMPSLaw, SMPSTree, SMPSStagewise, read_smps, write_smps, support_size,
+export SMPSProblem, SMPSLaw, SMPSTree, SMPSStagewise, read_smps, write_smps, write_sof, support_size,
        enumerate_scenarios, second_stage, scenario_data, bundles, scenario_tree, sample_tree,
        row_bounds, extensive_form
 
@@ -46,6 +48,7 @@ include("tree.jl")
 include("stagewise.jl")
 include("read.jl")
 include("write.jl")
+include("sof.jl")
 
 """
     extensive_form(smps::SMPSProblem, ξ, p; optimizer = nothing)

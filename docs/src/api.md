@@ -9,6 +9,7 @@ SMPSFormat
 ```@docs
 read_smps
 write_smps
+write_sof
 ```
 
 ## Two-stage problems

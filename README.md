@@ -43,6 +43,9 @@ write_smps("copy", s)                         # a law by period, INDEP and BLOCK
 
 tree = scenario_tree(smps)                    # a two-stage problem as a tree in two periods
 tree = sample_tree(rng, smps, 100)            # or with 100 scenarios drawn
+
+write_sof("lands.sof.json", smps)             # in StochOptFormat, for SDDP.jl
+write_sof("wat.sof.json.gz", read_smps("wat_10_C_32"); random_variables = false)
 ```
 
 ## What it reads and writes
@@ -56,6 +59,10 @@ tree = sample_tree(rng, smps, 100)            # or with 100 scenarios drawn
   probabilities rounded to the digits written, `NAME` as first section, carriage returns, gzip.
 - **Writing**: a two-stage problem (its law or given scenarios), a tree, a law by period; read
   back into the same problem.
+- **StochOptFormat**, the JSON format of SDDP.jl (Dowson et al.): each of them written as a
+  policy graph, its subproblems in MathOptFormat; with random variables, or with the data of
+  each node, which SDDP.jl reads whatever the random elements (random coefficients of the rows
+  included).
 
 What is refused, and how the reader settles what the format leaves open, is in [the
 documentation](https://fbastin.github.io/SMPSFormat.jl/dev/format/).
@@ -72,6 +79,9 @@ with HiGHS, and compares its optimal value with the published one; an instance w
 published optimum, or too many scenarios, is only read. The continuous integration runs the
 small instances. The [results](validation/results.md) list each instance, its reference, and
 the few differences that remain, with what is known of their causes.
+[`validation/sof.jl`](validation/sof.jl) checks `write_sof` the same way: each instance written
+in StochOptFormat, read back by SDDP.jl, and the deterministic equivalent SDDP.jl builds of it
+solved ([results](validation/sof-results.md)).
 
 ## Licence
 

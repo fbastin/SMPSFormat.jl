@@ -146,3 +146,33 @@ read_smps(joinpath(dir, "sampled"))
 write_smps(joinpath(dir, "sampled-tree"), sampled)
 read_smps(joinpath(dir, "sampled-tree"))
 ```
+
+## StochOptFormat
+
+[`write_sof`](@ref) writes a two-stage problem, a tree or a law by period in
+[StochOptFormat](https://odow.github.io/StochOptFormat), the JSON format of SDDP.jl: a policy
+graph whose nodes solve subproblems in MathOptFormat. A two-stage problem has two nodes, whose
+second takes the values of each scenario; a law by period, a node per period, each with the points
+of the support of its law (stagewise independence); a tree, a node per node of the tree:
+
+```@example guide
+write_sof(joinpath(dir, "lands.sof.json"), smps)
+print(first(read(joinpath(dir, "lands.sof.json"), String), 600), "…")
+```
+
+The random elements are random variables of the subproblems, fixed to their values in each
+realization. SDDP.jl reads random right-hand sides, bounds and costs, but not random coefficients
+of the rows: `random_variables = false` gives each node a subproblem of its own, with the values of
+its random elements, which any reader solves. A name ending with `.gz` is compressed:
+
+```julia
+write_sof("wat.sof.json.gz", read_smps("wat_10_C_32"); random_variables = false)
+
+using SDDP, HiGHS, JuMP
+model, _ = SDDP.read_from_file("wat.sof.json.gz")
+set_optimizer(model, HiGHS.Optimizer)
+SDDP.train(model; iteration_limit = 100)
+```
+
+A continuous law has no counterpart in StochOptFormat: write a sample of it instead (`scenarios =
+(ξ = ξs, p = ...)` for a two-stage problem, a tree from [`sample_tree`](@ref)).

@@ -3,18 +3,21 @@ using SMPSFormat
 using JuMP          # the extension that defines extensive_form
 
 # the results of the validation, a page of the manual
-cp(joinpath(@__DIR__, "..", "validation", "results.md"), joinpath(@__DIR__, "src", "results.md"); force = true)
+for results in ("results.md", "sof-results.md")
+    cp(joinpath(@__DIR__, "..", "validation", results), joinpath(@__DIR__, "src", results); force = true)
+end
 
 makedocs(sitename = "SMPSFormat.jl",
          authors = "Fabian Bastin",
          modules = [SMPSFormat, Base.get_extension(SMPSFormat, :SMPSFormatJuMPExt)],
          repo = Remotes.GitHub("fbastin", "SMPSFormat.jl"),
          format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true", edit_link = "main",
-                                  size_threshold_ignore = ["results.md"]),
+                                  size_threshold_ignore = ["results.md", "sof-results.md"]),
          pages = ["Home" => "index.md",
                   "Guide" => "guide.md",
                   "The format" => "format.md",
-                  "Validation" => ["validation.md", "Results" => "results.md"],
+                  "Validation" => ["validation.md", "Results" => "results.md",
+                                   "StochOptFormat" => "sof-results.md"],
                   "Reference" => "api.md"],
          checkdocs = :exports)
 

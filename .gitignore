@@ -2,3 +2,4 @@ Manifest.toml
 validation/data/
 docs/build/
 docs/src/results.md
+docs/src/sof-results.md

@@ -315,4 +315,7 @@ end
 
 end
 
-exit(Validation.main(ARGS))
+# run as a script; included (by sof.jl), only defined
+if abspath(PROGRAM_FILE) == @__FILE__
+    exit(Validation.main(ARGS))
+end

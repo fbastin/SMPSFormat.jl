@@ -1,8 +1,9 @@
 using SMPSFormat
 using Aqua
-using CodecZlib: GzipCompressor, GzipDecompressor
+using CodecZlib: GzipCompressor, GzipDecompressor, GzipDecompressorStream
 using Distributions: Normal, Uniform, Gamma, Beta, LogNormal
 using HiGHS
+using JSON
 using JuMP
 using Random
 using SparseArrays
@@ -132,6 +133,112 @@ function stagewise_round_trip(s; kwargs...)
     prefix = joinpath(mktempdir(), "written")
     write_smps(prefix, s)
     return read_smps(prefix; kwargs...)
+end
+
+"""A StochOptFormat file, gzipped or not, as JSON reads it."""
+read_sof(path) = JSON.parse(endswith(path, ".gz") ? open(io -> read(GzipDecompressorStream(io), String), path) :
+                            read(path, String))
+
+"""Whether the StochOptFormat document `sof` is consistent: version 1.0; every subproblem with the
+state variables of the root, its variables distinct, among them its states and random variables;
+every node with an existing subproblem and successors, probabilities between 0 and 1, and in each
+realization a value for each random variable of its subproblem, of which it has at least one."""
+function sof_consistent(sof)
+    sof["version"]["major"] == 1 && sof["version"]["minor"] == 0 || return false
+    states = Set(keys(sof["root"]["state_variables"]))
+    all(p -> 0 <= p.second <= 1 && haskey(sof["nodes"], p.first), sof["root"]["successors"]) || return false
+    for (_, sp) in sof["subproblems"]
+        names = [v["name"] for v in sp["subproblem"]["variables"]]
+        allunique(names) && Set(keys(sp["state_variables"])) == states || return false
+        all(v -> v["in"] in names && v["out"] in names, values(sp["state_variables"])) || return false
+        all(in(names), get(sp, "random_variables", [])) || return false
+    end
+    for (_, node) in sof["nodes"]
+        haskey(sof["subproblems"], node["subproblem"]) || return false
+        random = Set(get(sof["subproblems"][node["subproblem"]], "random_variables", []))
+        realizations = get(node, "realizations", [])
+        isempty(random) || !isempty(realizations) || return false
+        all(r -> 0 <= r["probability"] <= 1 && Set(keys(r["support"])) == random, realizations) || return false
+        all(p -> 0 <= p.second <= 1 && haskey(sof["nodes"], p.first), get(node, "successors", Dict())) ||
+            return false
+    end
+    return true
+end
+
+"""The optimal value, by HiGHS, of the deterministic equivalent of the StochOptFormat document
+`sof`, built from it alone: for each path from the root and each realization, a copy of the
+subproblem of each node, its random variables replaced by their values, its incoming states equal
+to the outgoing ones of its parent (to the values of the root for the first), its objective
+weighed by the probability of the path."""
+function sof_optimum(sof)
+    model = Model(HiGHS.Optimizer)
+    set_silent(model)
+    objective, sense = AffExpr(0.0), "min"
+    function evaluate(f, vars)
+        f["type"] == "Variable" && return vars[f["name"]]
+        e = AffExpr(f["constant"])
+        for t in (f["type"] == "ScalarAffineFunction" ? f["terms"] : f["affine_terms"])
+            add_to_expression!(e, t["coefficient"] * vars[t["variable"]])
+        end
+        for t in get(f, "quadratic_terms", [])           # one factor a random variable, a number here
+            add_to_expression!(e, t["coefficient"] * vars[t["variable_1"]] * vars[t["variable_2"]])
+        end
+        return e
+    end
+    function impose(f, set)
+        type = set["type"]
+        type == "Integer" ? set_integer(f) :
+        type == "EqualTo" ? @constraint(model, f == set["value"]) :
+        type == "LessThan" ? @constraint(model, f <= set["upper"]) :
+        type == "GreaterThan" ? @constraint(model, f >= set["lower"]) :
+        @constraint(model, set["lower"] <= f <= set["upper"])
+    end
+    function visit(name, probability, incoming)
+        node = sof["nodes"][name]
+        subproblem = sof["subproblems"][node["subproblem"]]
+        mof = subproblem["subproblem"]
+        sense = mof["objective"]["sense"]
+        for realization in get(node, "realizations", [Dict("probability" => 1.0, "support" => Dict())])
+            support = realization["support"]
+            vars = Dict{String,Any}(v["name"] => get(() -> @variable(model), support, v["name"])
+                                    for v in mof["variables"])
+            for (s, v) in subproblem["state_variables"]
+                @constraint(model, vars[v["in"]] == incoming[s])
+            end
+            foreach(c -> impose(evaluate(c["function"], vars), c["set"]), mof["constraints"])
+            q = probability * realization["probability"]
+            add_to_expression!(objective, q, evaluate(mof["objective"]["function"], vars))
+            outgoing = Dict(s => vars[v["out"]] for (s, v) in subproblem["state_variables"])
+            for (child, p) in get(node, "successors", Dict())
+                visit(child, q * p, outgoing)
+            end
+        end
+    end
+    for (child, p) in sof["root"]["successors"]
+        visit(child, p, sof["root"]["state_variables"])
+    end
+    @objective(model, sense == "max" ? MAX_SENSE : MIN_SENSE, objective)
+    optimize!(model)
+    @assert termination_status(model) == MOI.OPTIMAL
+    return objective_value(model)
+end
+
+"""The optimal value, by HiGHS, of the deterministic equivalent of `x` (of its scenarios `ξ`,
+`p` for a two-stage problem, all of them by default)."""
+function extensive_optimum(x, (ξ, p) = x isa SMPSProblem ? enumerate_scenarios(x.law) : (nothing, nothing))
+    model = x isa SMPSProblem ? first(extensive_form(x, ξ, p)) :
+            first(extensive_form(x isa SMPSStagewise ? scenario_tree(x) : x))
+    set_optimizer(model, HiGHS.Optimizer)
+    set_silent(model)
+    optimize!(model)
+    return objective_value(model)
+end
+
+"""`x` written in StochOptFormat, in a new temporary directory, and read back with JSON."""
+function sof_round_trip(x; gzip = false, kwargs...)
+    path = joinpath(mktempdir(), "written.sof.json" * (gzip ? ".gz" : ""))
+    write_sof(path, x; kwargs...) == path || error("write_sof did not return the path")
+    return read_sof(path)
 end
 
 @testset "SMPSFormat" begin
@@ -854,6 +961,154 @@ end
         optimize!(model)
         @test objective_sense(model) == MOI.MAX_SENSE
         @test objective_value(model) ≈ 10.0 && value(x[1]) ≈ 5.0
+    end
+
+    @testset "StochOptFormat" begin
+        # LandS: the graph of a two-stage problem, with random variables or a node by scenario
+        lands = read_smps(joinpath(DATA, "lands"))
+        sof = sof_round_trip(lands)
+        @test sof_consistent(sof) && sof["name"] == "LandS"
+        @test Set(keys(sof["root"]["state_variables"])) == Set(["X1", "X2", "X3", "X4"])
+        @test sof["root"]["successors"] == Dict("PERIOD1" => 1.0)
+        @test sof["nodes"]["PERIOD1"]["successors"] == Dict("PERIOD2" => 1.0)
+        @test sof["subproblems"]["PERIOD2"]["random_variables"] == ["RHS(DEMAND1)"]
+        realizations = sof["nodes"]["PERIOD2"]["realizations"]
+        @test [r["probability"] for r in realizations] == [0.3, 0.4, 0.3]
+        @test [r["support"]["RHS(DEMAND1)"] for r in realizations] == [3.0, 5.0, 7.0]
+        @test sof["subproblems"]["PERIOD2"]["state_variables"]["X1"] == Dict("in" => "X1_in", "out" => "X1_out")
+        @test sof["subproblems"]["PERIOD1"]["state_variables"]["X1"] == Dict("in" => "X1_in", "out" => "X1")
+        nodes = sof_round_trip(lands; random_variables = false, gzip = true)
+        @test sof_consistent(nodes) && length(nodes["subproblems"]) == 4
+        @test nodes["nodes"]["PERIOD1"]["successors"] == Dict("PERIOD2_1" => 0.3, "PERIOD2_2" => 0.4, "PERIOD2_3" => 0.3)
+        @test !haskey(nodes["subproblems"]["PERIOD2_1"], "random_variables")
+        # the same optimum as the deterministic equivalent, either way: two stages, trees (one whose
+        # probabilities sum up to 0.999, as written), laws by period (BLOCKS; INDEP, as written),
+        # random coefficients (wat_10_C_32)
+        cases = [lands, read_smps(joinpath(DATA, "KandW3R")),
+                 @test_logs((:warn, r"kept as written"),
+                            read_smps(joinpath(DATA, "app0110R"); probability_sums = :as_written)),
+                 read_smps(joinpath(DATA, "pltexpa-3.cor"), joinpath(DATA, "pltexpa-3.tim"),
+                           joinpath(DATA, "pltexpa-3-6.sto")),
+                 @test_logs((:warn, r"kept as written"), (:warn, r"kept as written"),
+                            read_smps(joinpath(DATA, "fxm.cor"), joinpath(DATA, "fxm-3.tim"),
+                                      joinpath(DATA, "fxm-3-6.sto"); probability_sums = :as_written)),
+                 read_smps(joinpath(DATA, "wat_10_C_32"))]
+        for x in cases, random_variables in (true, false)
+            sof = sof_round_trip(x; random_variables)
+            @test sof_consistent(sof)
+            @test sof_optimum(sof) ≈ extensive_optimum(x) rtol = 1e-9
+        end
+        app = cases[3]                                  # the root reaches the tree with 0.999
+        @test sof_round_trip(app)["root"]["successors"] == Dict("STG00001_1" => 0.999)
+        @test sof_optimum(sof_round_trip(app)) ≈ 41.958 rtol = 1e-9
+        wat = sof_round_trip(cases[6])                  # a random coefficient: a product in its row
+        @test any(c -> c["function"]["type"] == "ScalarQuadraticFunction",
+                  wat["subproblems"]["STG00002"]["subproblem"]["constraints"])
+        # a law by period: its nodes; with random_variables = false, a node by point of each law
+        stoch = """
+            STOCH         TOY
+            INDEP         DISCRETE
+                RHS       DEM1      4.0            PERIOD2   0.5
+                RHS       DEM1      6.0            PERIOD2   0.5
+                RHS       DEM2      2.0            PERIOD2   0.5
+                RHS       DEM2      3.0            PERIOD2   0.5
+                RHS       BAL       8.0            PERIOD3   0.25
+                RHS       BAL       9.0            PERIOD3   0.75
+            ENDATA
+            """
+        s = read_smps(instance(stoch; time = THREE))
+        sof = sof_round_trip(s)
+        @test sort(collect(keys(sof["nodes"]))) == ["PERIOD1", "PERIOD2", "PERIOD3"]
+        @test length(sof["nodes"]["PERIOD2"]["realizations"]) == 4
+        @test sof["nodes"]["PERIOD2"]["successors"] == Dict("PERIOD3" => 1.0)
+        nodes = sof_round_trip(s; random_variables = false)
+        @test sort(collect(keys(nodes["nodes"]))) == ["PERIOD1", "PERIOD2_1", "PERIOD2_2", "PERIOD2_3",
+                                                      "PERIOD2_4", "PERIOD3_1", "PERIOD3_2"]
+        @test all(nodes["nodes"]["PERIOD2_$k"]["successors"] == Dict("PERIOD3_1" => 0.25, "PERIOD3_2" => 0.75)
+                  for k in 1:4)
+        @test sof_optimum(sof) ≈ sof_optimum(nodes) ≈ extensive_optimum(s)
+        # the states: X1 and X2, which the rows of period 2 involve, Y1, which BAL involves in
+        # period 3; in period 1, Y1 is carried, Y1_out == Y1_in
+        @test Set(keys(sof["root"]["state_variables"])) == Set(["X1", "X2", "Y1"])
+        @test sof["subproblems"]["PERIOD1"]["state_variables"]["Y1"] == Dict("in" => "Y1_in", "out" => "Y1_out")
+        # a balance of period 3 revealed in period 2: refused, but its tree is written
+        early = read_smps(instance("STOCH         TOY\nINDEP         DISCRETE\n" *
+                                   "    RHS       BAL       8.0            PERIOD2   0.5\n" *
+                                   "    RHS       BAL       9.0            PERIOD2   0.5\nENDATA\n"; time = THREE))
+        @test_throws ErrorException sof_round_trip(early)
+        @test sof_optimum(sof_round_trip(scenario_tree(early))) ≈ extensive_optimum(early)
+        # random bounds: as random variables, where they are finite; infinite, in a node of their own
+        bounds = read_smps(instance("""
+            STOCH         TOY
+            SCENARIOS     DISCRETE
+             SC S1        ROOT      0.5            PERIOD2
+             UP BND       Y1        2.0
+             SC S2        ROOT      0.5            PERIOD2
+             FX BND       Y2        4.0
+            ENDATA
+            """))
+        @test_throws ErrorException sof_round_trip(bounds)            # UP(Y2) infinite in S1
+        @test sof_optimum(sof_round_trip(bounds; random_variables = false)) ≈ extensive_optimum(bounds)
+        tree = read_smps(instance("""
+            STOCH         TOY
+            SCENARIOS     DISCRETE                REPLACE
+             SC A         ROOT      0.5            PERIOD2
+             UP BND       Y1        1.5
+             SC B         A         0.5            PERIOD3
+             LO BND       Y3        2.0
+            ENDATA
+            """; time = THREE))
+        for random_variables in (true, false)                         # UP(Y1) finite at A, alone in period 2
+            sof = sof_round_trip(tree; random_variables)
+            @test sof_consistent(sof) && sof_optimum(sof) ≈ extensive_optimum(tree)
+        end
+        support(n) = sof_round_trip(tree)["nodes"][n]["realizations"][1]["support"]
+        @test support("PERIOD3_3") == Dict("LO(Y3)" => 0.0) && support("PERIOD3_4") == Dict("LO(Y3)" => 2.0)  # A, B
+        # a random cost of a maximization: in the sense of the file
+        maxi = read_smps(instance("STOCH         MAXI\nINDEP         DISCRETE\n" *
+                                  "    Y         PROFIT    2.0            P2        0.5\n" *
+                                  "    Y         PROFIT    4.0            P2        0.5\nENDATA\n";
+                                  core = """
+                                      NAME          MAXI
+                                      OBJSENSE
+                                          MAX
+                                      ROWS
+                                       N  PROFIT
+                                       L  CAP
+                                       L  SELL
+                                      COLUMNS
+                                          X         PROFIT    -1.0           CAP       1.0
+                                          X         SELL      -1.0
+                                          Y         PROFIT    3.0            SELL      1.0
+                                      RHS
+                                          RHS       CAP       5.0
+                                      ENDATA
+                                      """,
+                                  time = "TIME          MAXI\nPERIODS\n    X         CAP                      P1\n" *
+                                         "    Y         SELL                     P2\nENDATA\n"))
+        for random_variables in (true, false)
+            sof = sof_round_trip(maxi; random_variables)
+            @test all(sp -> sp["subproblem"]["objective"]["sense"] == "max", values(sof["subproblems"]))
+            @test sof_optimum(sof) ≈ 10.0
+        end
+        @test [r["support"]["COST(Y)"] for r in sof_round_trip(maxi)["nodes"]["PERIOD2"]["realizations"]] == [2.0, 4.0]
+        # a continuous law: its scenarios drawn, then written
+        normal = read_smps(instance("STOCH         TOY\nINDEP         NORMAL\n" *
+                                    "    RHS       DEM1      5.0            PERIOD2   4.0\nENDATA\n"))
+        @test_throws ErrorException sof_round_trip(normal)
+        ξ, p = rand(MersenneTwister(1), normal.law, 5), fill(0.2, 5)
+        sof = sof_round_trip(normal; scenarios = (; ξ, p))
+        @test length(sof["nodes"]["PERIOD2"]["realizations"]) == 5
+        @test sof_optimum(sof) ≈ extensive_optimum(normal, (ξ, p))
+        # more points than the limit
+        @test_throws ErrorException sof_round_trip(lands; limit = 2)
+        # names: a variable StochOptFormat adds never takes a column's name
+        names = SMPSFormat.sof_names((columns = ["X", "X_in"], elements = Tuple{Symbol,Int,Int}[]), [1])
+        @test names.inname[1] == "X_in'" && names.outname[1] == "X_out"
+        # JSON: strings escaped
+        io = IOBuffer()
+        SMPSFormat.json(io, SMPSFormat.object("a\"b\\c\n" => [1, 2.5]))
+        @test JSON.parse(String(take!(io))) == Dict("a\"b\\c\n" => [1, 2.5])
     end
 
     @testset "Code quality (Aqua)" begin

@@ -21,7 +21,8 @@ An instance in the SMPS format comes in three files:
 | more periods, `INDEP` and `BLOCKS` | [`SMPSStagewise`](@ref) | the core data and a law for each period, independent from one period to the next |
 
 [`write_smps`](@ref) writes each back, and [`read_smps`](@ref) reads what it writes into the same
-problem. With JuMP loaded, [`extensive_form`](@ref) builds the deterministic equivalent.
+problem. [`write_sof`](@ref) writes each in StochOptFormat, the JSON format of SDDP.jl. With JuMP
+loaded, [`extensive_form`](@ref) builds the deterministic equivalent.
 
 ## Installation
 

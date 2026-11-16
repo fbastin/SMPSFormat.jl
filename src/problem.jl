@@ -125,3 +125,17 @@ function two_stage_core(smps::SMPSProblem)
             ranges = [smps.ranges1; smps.ranges2], lb = [smps.lb1; smps.lb], ub = [smps.ub1; smps.ub],
             integer = [smps.integer1; smps.integer2])
 end
+
+"""The random elements of the two-stage problem `smps` in the numbering of
+[`two_stage_core`](@ref), as those of an [`SMPSTree`](@ref): `(:rhs, i, 0)`, `(:c, j, 0)`, `(:A,
+i, j)`, `(:lb, j, 0)` and `(:ub, j, 0)`."""
+function two_stage_elements(smps::SMPSProblem)
+    n1, m1 = length(smps.columns1), length(smps.rows1)
+    return map(smps.elements) do (kind, i, j)
+        kind === :h && return (:rhs, m1 + i, 0)
+        kind === :q && return (:c, n1 + i, 0)
+        kind === :T && return (:A, m1 + i, j)
+        kind === :W && return (:A, m1 + i, n1 + j)
+        return (kind, n1 + i, 0)                    # a bound
+    end
+end

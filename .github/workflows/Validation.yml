@@ -1,6 +1,7 @@
 name: Validation
 # The instances of validation/instances.toml read, solved and compared with their published
-# optimal values: the small ones on each change, larger ones on demand.
+# optimal values, then written in StochOptFormat and solved by SDDP.jl's deterministic
+# equivalent: the small ones on each change, larger ones on demand.
 on:
   push:
     branches: [main]
@@ -38,12 +39,19 @@ jobs:
         run: julia --project=validation -e 'using Pkg; Pkg.develop(PackageSpec(path = pwd())); Pkg.instantiate()'
       - name: Validate
         run: julia --project=validation validation/validate.jl --size ${{ inputs.size || 'small' }} --output results.md
+      - name: Validate StochOptFormat
+        if: ${{ !cancelled() }}
+        run: julia --project=validation validation/sof.jl --size ${{ inputs.size || 'small' }} --output sof-results.md
       - name: Summary
         if: always()
-        run: test -f results.md && cat results.md >> "$GITHUB_STEP_SUMMARY" || true
+        run: |
+          test -f results.md && cat results.md >> "$GITHUB_STEP_SUMMARY" || true
+          test -f sof-results.md && cat sof-results.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: validation-results
-          path: results.md
+          path: |
+            results.md
+            sof-results.md
           if-no-files-found: ignore

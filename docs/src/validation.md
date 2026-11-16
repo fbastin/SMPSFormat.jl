@@ -158,3 +158,25 @@ two differences of SMI are accounted for: it normalizes the probabilities (app01
 probabilities 0.111 sum up to 0.999, gives 42 rather than 41.958), and it takes the entries that
 a scenario does not list, in its branch period and later, from the core file rather than from its
 parent (app0110R gives 44.667 and wat_10_C_32 -2622.062 until these entries are listed).
+
+## StochOptFormat
+
+`validation/sof.jl` checks [`write_sof`](@ref) on the same instances, with readers other than
+SMPSFormat's: each instance with a published optimal value is written in StochOptFormat, read
+back by SDDP.jl (`SDDP.read_from_file`, which reads the subproblems with MathOptInterface's
+reader of MathOptFormat), and the deterministic equivalent SDDP.jl builds of its policy graph
+(`SDDP.deterministic_equivalent`) solved with HiGHS; its optimal value is compared with the
+published one as above. Each instance is written both ways: with random variables, unless it has
+random coefficients in its rows, which SDDP.jl does not read, and with the data of each node.
+lands3-indep, whose balance of period 3 is known in period 2, is written as its scenario tree.
+
+```
+julia --project=validation validation/sof.jl --size small --output sof-results.md
+```
+
+The options are those of `validate.jl`; the continuous integration runs the small instances.
+On them, the [results](sof-results.md) are those of `validate.jl`, to the digits printed: every
+instance agrees with its published value, but for the known differences above, found again with
+the same values. Run up to the size `medium`, the first 79 instances, as far as rand0-2000, give
+the same verdicts; SDDP.jl's deterministic equivalents of the larger ones, with their copies of the
+state variables and their random variables fixed, take HiGHS much longer than SMPSFormat's.

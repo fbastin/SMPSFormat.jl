@@ -114,14 +114,7 @@ law, each with probability `1 / n`. What applies to trees then applies to it:
 function scenario_tree(smps::SMPSProblem, ξ::AbstractVector, p::AbstractVector)
     length(ξ) == length(p) || error("$(length(ξ)) scenarios but $(length(p)) probabilities")
     d = two_stage_core(smps)
-    n1, m1 = length(smps.columns1), length(smps.rows1)
-    elements = map(smps.elements) do (kind, i, j)
-        kind === :h && return (:rhs, m1 + i, 0)
-        kind === :q && return (:c, n1 + i, 0)
-        kind === :T && return (:A, m1 + i, j)
-        kind === :W && return (:A, m1 + i, n1 + j)
-        return (kind, n1 + i, 0)                    # a bound
-    end
+    elements = two_stage_elements(smps)
     base, S = smps.law.base, length(ξ)
     values = [[Pair{Int,Float64}[]];
               [[e => v for (e, v) in enumerate(point) if v != base[e]] for point in ξ]]
