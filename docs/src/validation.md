@@ -175,8 +175,11 @@ julia --project=validation validation/sof.jl --size small --output sof-results.m
 ```
 
 The options are those of `validate.jl`; the continuous integration runs the small instances.
-On them, the [results](sof-results.md) are those of `validate.jl`, to the digits printed: every
-instance agrees with its published value, but for the known differences above, found again with
-the same values. Run up to the size `medium`, the first 79 instances, as far as rand0-2000, give
-the same verdicts; SDDP.jl's deterministic equivalents of the larger ones, with their copies of the
-state variables and their random variables fixed, take HiGHS much longer than SMPSFormat's.
+The [results](sof-results.md), for the 120 instances up to the size `medium`, are those of
+`validate.jl`, to the digits printed: every instance agrees with its published value, but for the
+known differences above, found again with the same values, written either way. SDDP.jl's
+deterministic equivalents are larger than SMPSFormat's, with copies of the state variables and the
+random variables fixed, and take HiGHS longer: the interior point method without presolve that
+`instances.toml` sets for the rand instances fails on that of rand0-4000 with the data of each node,
+and does not end within the time limit on that of rand0-6000 with random variables; each agrees
+written the other way.
