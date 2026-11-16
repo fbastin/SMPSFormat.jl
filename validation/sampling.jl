@@ -12,21 +12,44 @@ with Latin hypercube samples, to compare with theirs (Table 4):
     julia --project=validation validation/sampling.jl [options] instance...
 
 `--replications M` (7), `--scenarios N` (5000), `--batches T` (50), `--batch-scenarios N̄`
-(20000), `--seed s` (1). The instances are those of `instances.toml`, whose files `validate.jl`
-downloads; their random elements must be right-hand sides of the second stage.
+(20000), `--seed s` (1), `--solver` the method of HiGHS for the SAAs: `ipm` (its interior point
+methods, HiPO then IPX, without presolve or crossover, then its simplex method if they fail, the
+default), `ipx` or `simplex`. The instances are those of `instances.toml`, whose files
+`validate.jl` downloads; their random elements must be right-hand sides of the second stage.
 """
 module Sampling
 
 using HiGHS, JuMP, LinearAlgebra, Printf, Random, SMPSFormat, SparseArrays, Statistics, TOML
 
-"""Linderoth, Shapiro and Wright's estimates (Table 4, Latin hypercube samples of 5000
-scenarios): the lower and upper bounds, each with the half-width of its 95% confidence
-interval."""
-const LSW = Dict("20term" => ((254298.57, 38.74), (254311.55, 5.56)),
-                 "ssn" => ((9.84, 0.10), (9.913, 0.022)),
-                 "storm" => ((15498657.8, 73.9), (15498739.41, 19.11)),
-                 "gbd" => ((1655.62, 0.00), (1655.628, 0.00)),
-                 "LandS" => ((225.62, 0.02), (225.624, 0.005)))
+"""Linderoth, Shapiro and Wright's estimates (Table 4, Latin hypercube samples), by instance and
+by number `N` of scenarios of the SAAs: the lower and upper bounds, each with the half-width of
+its 95% confidence interval."""
+const LSW = Dict(
+    "20term" => Dict(50 => ((254307.57, 371.80), (254328.69, 4.73)),
+                     100 => ((254387.00, 252.13), (254312.50, 5.77)),
+                     500 => ((254296.43, 117.95), (254315.82, 4.59)),
+                     1000 => ((254294.00, 95.22), (254310.33, 5.23)),
+                     5000 => ((254298.57, 38.74), (254311.55, 5.56))),
+    "gbd" => Dict(50 => ((1644.21, 10.71), (1655.628, 0.00)),
+                  100 => ((1655.62, 0.00), (1655.628, 0.00)),
+                  500 => ((1655.62, 0.00), (1655.628, 0.00)),
+                  1000 => ((1655.62, 0.00), (1655.628, 0.00)),
+                  5000 => ((1655.62, 0.00), (1655.628, 0.00))),
+    "LandS" => Dict(50 => ((222.59, 2.75), (225.647, 0.004)),
+                    100 => ((225.57, 0.16), (225.630, 0.004)),
+                    500 => ((225.65, 0.05), (225.628, 0.004)),
+                    1000 => ((225.64, 0.03), (225.633, 0.005)),
+                    5000 => ((225.62, 0.02), (225.624, 0.005))),
+    "ssn" => Dict(50 => ((10.10, 0.81), (11.380, 0.023)),
+                  100 => ((8.90, 0.36), (10.542, 0.021)),
+                  500 => ((9.87, 0.22), (10.069, 0.026)),
+                  1000 => ((9.83, 0.29), (9.996, 0.025)),
+                  5000 => ((9.84, 0.10), (9.913, 0.022))),
+    "storm" => Dict(50 => ((15497683.7, 1078.8), (15498722.14, 17.97)),
+                    100 => ((15499255.3, 1011.7), (15498739.40, 18.34)),
+                    500 => ((15498661.4, 280.8), (15498733.67, 17.71)),
+                    1000 => ((15498598.1, 148.5), (15498735.73, 19.93)),
+                    5000 => ((15498657.8, 73.9), (15498739.41, 19.11))))
 
 say(args...) = (println(args...); flush(stdout))
 
@@ -61,17 +84,19 @@ function lhs(rng, law, n)
     return ξs
 end
 
-"""The optimal value and first-stage solution of the SAA of the scenarios `ξs`: by HiGHS's
-interior point methods, HiPO then IPX, without presolve or crossover, or else by its simplex
-method; with `basic`, by its simplex method, whose solution meets the first-stage rows."""
-function saa(problem, ξs; basic = false)
+"""The methods of HiGHS for the SAAs, tried in turn: `(solver, presolve, run_crossover)`."""
+const METHODS = Dict("ipm" => [("ipm", "off", "off"), ("ipx", "off", "off"),
+                               ("simplex", "choose", "on")],
+                     "ipx" => [("ipx", "off", "off")], "simplex" => [("simplex", "choose", "on")])
+
+"""The optimal value and first-stage solution of the SAA of the scenarios `ξs`, by the methods
+`methods` of `METHODS`; the simplex method's solution meets the first-stage rows."""
+function saa(problem, ξs; methods = "ipm")
     n = length(ξs)
     model, x, _ = extensive_form(problem, ξs, fill(1 / n, n))
     set_optimizer(model, HiGHS.Optimizer)
     set_silent(model)
-    simplex = ("simplex", "choose", "on")
-    methods = basic ? [simplex] : [("ipm", "off", "off"), ("ipx", "off", "off"), simplex]
-    for (solver, presolve, crossover) in methods
+    for (solver, presolve, crossover) in METHODS[methods]
         set_attribute(model, "solver", solver)
         set_attribute(model, "presolve", presolve)
         set_attribute(model, "run_crossover", crossover)
@@ -126,7 +151,7 @@ show_interval((m, h)) = @sprintf("%.10g ± %.4g", m, h)
 
 """The estimates for the instance `name`, printed, compared with Linderoth, Shapiro and
 Wright's."""
-function estimate(config, name, M, N, T, N̄, seed)
+function estimate(config, name, M, N, T, N̄, seed, solver)
     started = time()
     rng = Xoshiro(seed)
     problem = read_smps(files(config, name)...)
@@ -135,7 +160,7 @@ function estimate(config, name, M, N, T, N̄, seed)
 
     # The evaluation, checked against the deterministic equivalent of 20 scenarios, x fixed.
     ξs = lhs(rng, problem.law, 20)
-    _, x0 = saa(problem, ξs; basic = true)
+    _, x0 = saa(problem, ξs; methods = "simplex")
     model, x, _ = extensive_form(problem, ξs, fill(1 / 20, 20))
     set_optimizer(model, HiGHS.Optimizer)
     set_silent(model)
@@ -149,7 +174,7 @@ function estimate(config, name, M, N, T, N̄, seed)
     optima, solutions = Float64[], Vector{Float64}[]
     for j in 1:M
         t = time()
-        v, x = saa(problem, lhs(rng, problem.law, N))
+        v, x = saa(problem, lhs(rng, problem.law, N); methods = solver)
         push!(optima, v)
         push!(solutions, x)
         say(@sprintf("SAA %d of %d scenarios: %.10g (%.0f s)", j, N, v, time() - t))
@@ -166,8 +191,8 @@ function estimate(config, name, M, N, T, N̄, seed)
     say(@sprintf("upper bound: %s (%d batches of %d scenarios, %.0f s)", show_interval(upper), T,
                  N̄, time() - t))
 
-    if haskey(LSW, name)
-        (ll, lh), (ul, uh) = LSW[name]
+    if haskey(LSW, name) && haskey(LSW[name], N)
+        (ll, lh), (ul, uh) = LSW[name][N]
         say(@sprintf("Linderoth, Shapiro and Wright: lower bound %s, upper bound %s",
                      show_interval((ll, lh)), show_interval((ul, uh))))
         # two estimates of the same quantity differ by less than the half-width of the interval
@@ -183,11 +208,17 @@ end
 function main(arguments)
     option = Dict("--replications" => 7, "--scenarios" => 5000, "--batches" => 50,
                   "--batch-scenarios" => 20000, "--seed" => 1)
+    solver = "ipm"
     names, k = String[], 1
     while k <= length(arguments)
-        if haskey(option, arguments[k])
+        if haskey(option, arguments[k]) || arguments[k] == "--solver"
             k < length(arguments) || error("$(arguments[k]) needs a value")
-            option[arguments[k]] = parse(Int, arguments[k + 1])
+            if arguments[k] == "--solver"
+                solver = arguments[k + 1]
+                haskey(METHODS, solver) || error("--solver: ipm, ipx or simplex, not $solver")
+            else
+                option[arguments[k]] = parse(Int, arguments[k + 1])
+            end
             k += 2
         else
             push!(names, arguments[k])
@@ -198,7 +229,7 @@ function main(arguments)
     config = TOML.parsefile(joinpath(@__DIR__, "instances.toml"))
     for name in names
         estimate(config, name, option["--replications"], option["--scenarios"],
-                 option["--batches"], option["--batch-scenarios"], option["--seed"])
+                 option["--batches"], option["--batch-scenarios"], option["--seed"], solver)
     end
     return 0
 end

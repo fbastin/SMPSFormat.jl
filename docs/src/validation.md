@@ -36,9 +36,11 @@ An instance whose optimal value is not published, or whose deterministic equival
 reach, is only read: 20term, ssn and storm, whose 10^12 to 10^81 scenarios leave only the
 estimates of Linderoth, Shapiro and Wright, and Topaloglu's datasets, for which the values of
 two approximate policies are published, not optimal values. Reading them checks the files,
-not a value. gbd and LandS have deterministic equivalents of tens of millions of nonzeros
-(`huge`): gbd's optimum is that of Bayraksan and Morton (2011), who solve it exactly; LandS's,
-which is not published, must lie within the confidence intervals of the estimates.
+not a value; the optimal values of 20term, ssn and storm are estimated apart, by sampling, as
+Linderoth, Shapiro and Wright do (below). gbd and LandS have deterministic equivalents of tens
+of millions of nonzeros (`huge`): gbd's optimum is that of Bayraksan and Morton (2011), who solve
+it exactly; LandS's, which is not published, must lie within the confidence intervals of the
+estimates.
 
 The collections that [the Stochastic Programming Society](https://www.stoprog.org/resources)
 lists are all here, but for a few that the reader cannot check:
@@ -158,6 +160,34 @@ two differences of SMI are accounted for: it normalizes the probabilities (app01
 probabilities 0.111 sum up to 0.999, gives 42 rather than 41.958), and it takes the entries that
 a scenario does not list, in its branch period and later, from the core file rather than from its
 parent (app0110R gives 44.667 and wat_10_C_32 -2622.062 until these entries are listed).
+
+## Sampling estimates
+
+`validation/sampling.jl` estimates the optimal values of the sampling instances as Linderoth,
+Shapiro and Wright do (Sections 4 and 9.1), with Latin hypercube samples: the lower bound is the
+mean of the optimal values of seven sample average approximations (SAA) of `N` scenarios each,
+the upper bound the value of the best of their solutions, estimated on fifty batches of 20000
+scenarios, each with its 95% confidence interval. Their Table 4 gives the estimates of the same
+quantities for the same `N`.
+
+```
+julia --project=validation validation/sampling.jl gbd LandS 20term
+julia --project=validation validation/sampling.jl --scenarios 1000 --solver simplex ssn storm
+```
+
+| Instance | `N` | Lower bound | Theirs | Upper bound | Theirs |
+|---|--:|--:|--:|--:|--:|
+| gbd | 5000 | 1655.627848 | 1655.62 ± 0.00 | 1655.627847 | 1655.628 ± 0.00 |
+| LandS | 5000 | 225.636 ± 0.019 | 225.62 ± 0.02 | 225.6305 ± 0.0045 | 225.624 ± 0.005 |
+| 20term | 5000 | 254289.2 ± 15.8 | 254298.57 ± 38.74 | 254315.1 ± 5.7 | 254311.55 ± 5.56 |
+| ssn | 1000 | 9.580 ± 0.165 | 9.83 ± 0.29 | 9.965 ± 0.025 | 9.996 ± 0.025 |
+| storm | 1000 | 15498731 ± 265 | 15498598.1 ± 148.5 | 15498721.2 ± 20.0 | 15498735.73 ± 19.93 |
+
+Each estimate of LandS, 20term, ssn and storm differs from theirs by less than the half-width of
+the confidence interval of the difference; gbd's are its optimum, to the digits they print. The
+optima of gbd and LandS, which `validate.jl` computes, 1655.627848 and 225.629400, lie within
+these bounds. The SAAs of ssn and storm are solved by HiGHS's simplex method, its interior point
+methods making no progress on ssn and taking ten times longer on storm, which keeps `N` to 1000.
 
 ## StochOptFormat
 
